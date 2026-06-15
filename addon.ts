@@ -42,7 +42,7 @@ function getManifest() {
         ],
       },
     ],
-    resources: ["stream", "catalog"],
+    resources: ["stream", "catalog", "meta"],
     types: ["movie", "series"],
     name: "CZ Streams",
     description: "CZ/SK stream aggregator — vyhľadáva a streamuje filmy a seriály z Prehraj.to, HellSpy, SOSAC, WebShare a ďalších českých/slovenských zdrojov.",
@@ -57,6 +57,51 @@ function getManifest() {
 }
 
 const builder = new SDK.addonBuilder(getManifest());
+
+// --- Meta handler (for czs: prefixed catalog results) ---
+builder.defineMetaHandler(async (props) => {
+  const { type, id } = props as {
+    type: ContentType;
+    id: string;
+  };
+
+  try {
+    if (id.startsWith("czs:") || id.startsWith("czs%3A") || decodeURIComponent(id).startsWith("czs:")) {
+      const decodedId = id.startsWith("czs%3A") ? decodeURIComponent(id) : id;
+      const parts = decodedId.split(":");
+      const resolverName = parts[1] || "";
+      // Extract a display name from the rest of the ID (URL-encoded path)
+      const rawPath = parts.slice(2).join(":");
+      const path = decodeURIComponent(rawPath);
+      // Derive a human-readable name from the URL path
+      const name = path
+        .replace(/^\//, "")
+        .split("/")[0]
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ")
+        .replace(/https?:\/\/.*/, "")
+        .trim() || `${resolverName} stream`;
+
+      return {
+        meta: {
+          id: id,
+          type: type,
+          name: name,
+          poster: "https://prehraj.to/favicon.ico",
+          background: "https://prehraj.to/favicon.ico",
+          posterShape: "regular" as const,
+          description: `Stream from ${resolverName}`,
+        },
+      };
+    }
+  } catch (e) {
+    console.error("Meta handler error:", e);
+  }
+
+  // For tt: IDs, proxy to Cinemeta
+  return { meta: null };
+});
 
 // --- Catalog handler (search mode) ---
 builder.defineCatalogHandler(async (props) => {
