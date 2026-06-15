@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+  // Don't exit — keep server running
+});
+
 import { type Express, type Request, type Response } from "express";
 import SDK from "stremio-addon-sdk";
 

@@ -122,35 +122,44 @@ async function getResultStreamUrls(
   let video = "";
   let subtitles: { id: string; url: string; lang: string }[] = [];
 
-  try {
-    const sourcesRegex = /.*var sources\s*=\s*(\[.*?\])\s*;/s;
-    const sources = sourcesRegex.exec(script)[1];
-    const items = eval(sources);
-    video = items.pop().file;
-  } catch (error) {
-    console.log("error parsing streams", error);
-    const srcRegex = /.*src:\s*"(.*?)".*/s;
-    video = srcRegex.exec(script)[1];
+  // Extract video sources from JS array without eval
+  // Format: var sources = [{file: "https://...", label: "1080p"}, ...]
+  const fileRegex = /file:\s*"([^"]+)"/g;
+  const fileMatches = [...script.matchAll(fileRegex)];
+  if (fileMatches.length > 0) {
+    // Last item is usually highest quality
+    video = fileMatches[fileMatches.length - 1][1];
+  } else {
+    // Fallback: try src: instead of file:
+    const srcRegex = /src:\s*"([^"]+)"/g;
+    const srcMatches = [...script.matchAll(srcRegex)];
+    if (srcMatches.length > 0) {
+      video = srcMatches[srcMatches.length - 1][1];
+    }
   }
 
-  try {
-    const sourcesRegex = /.*var tracks\s*=\s*(\[.*?\])\s*;/s;
-    const sources = sourcesRegex.exec(script)[1];
-    const items = eval(sources) as Array<{
-      kind: string;
-      label: string;
-      src: string;
-      srclang: string;
-    }>;
-    subtitles = items
-      .filter((item) => item.kind === "captions")
-      .map((item) => ({
-        id: item.label,
-        url: item.src,
-        lang: item.srclang,
-      }));
-  } catch {
-    // nothing to do
+  // Extract subtitle tracks without eval
+  // Format: var tracks = [{kind: "captions", label: "...", src: "...", srclang: "cze"}, ...]
+  const trackPattern = /kind:\s*"captions"[^}]*?src:\s*"([^"]+)"[^}]*?srclang:\s*"([^"]+)"/g;
+  let trackMatch;
+  while ((trackMatch = trackPattern.exec(script)) !== null) {
+    subtitles.push({
+      id: `cze`,
+      url: trackMatch[1],
+      lang: trackMatch[2],
+    });
+  }
+  // Also try extracting label for subtitle ID
+  if (subtitles.length === 0) {
+    const altTrackPattern = /kind:\s*"captions"[^}]*?label:\s*"([^"]+)"[^}]*?src:\s*"([^"]+)"[^}]*?srclang:\s*"([^"]+)"/g;
+    let altMatch;
+    while ((altMatch = altTrackPattern.exec(script)) !== null) {
+      subtitles.push({
+        id: altMatch[1],
+        url: altMatch[2],
+        lang: altMatch[3],
+      });
+    }
   }
 
   return {
@@ -222,14 +231,8 @@ export function getResolver(): Resolver {
     ],
 
     validateConfig: async (addonConfig) => {
-      if (!addonConfig.prehrajtoUsername || !addonConfig.prehrajtoPassword) {
-        return false;
-      }
-      const fetchOptions = await getFetchOptions(
-        addonConfig.prehrajtoUsername,
-        addonConfig.prehrajtoPassword,
-      );
-      return "headers" in fetchOptions;
+      // Works without login (anonymous) too — premium just adds more features
+      return true;
     },
 
     search: async (title, addonConfig) => {

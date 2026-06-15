@@ -1,10 +1,10 @@
 {
-  "name": "stremio-plugin-prehrajto",
-  "version": "0.1.10",
-  "description": "",
+  "name": "cz-streams",
+  "version": "1.0.0",
+  "description": "Stremio addon for CZ/SK streaming sites (Prehraj.to, SOSAC, HellSpy, WebShare, FastShare, Sledujte.to)",
   "type": "module",
   "engines": {
-    "node": "23.*"
+    "node": ">=18"
   },
   "scripts": {
     "start": "node --experimental-strip-types server.ts",

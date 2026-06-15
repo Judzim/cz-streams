@@ -27,8 +27,8 @@ function getManifest() {
     catalogs: [],
     resources: ["stream"],
     types: ["movie", "series"],
-    name: "CzStreams",
-    description: "",
+    name: "CZ Streams",
+    description: "CZ/SK stream aggregator — vyhľadáva a streamuje filmy a seriály z Prehraj.to, HellSpy, SOSAC, WebShare a ďalších českých/slovenských zdrojov.",
     idPrefixes: ["tt"],
     logo: "https://play-lh.googleusercontent.com/qDMsLq4DWg_OHEX6YZvM1FRKnSmUhzYH-rYbWi4QBosX9xTDpO8hRUC-oPtNt6hoFX0=w256-h256-rw",
     behaviorHints: {
@@ -53,17 +53,25 @@ builder.defineStreamHandler(async (props) => {
       getTmdbDetails(id, "cs"),
     ]);
 
+    console.log(`Stream handler: type=${type}, id=${id}, baseMeta=${!!baseMeta}, tmdbMeta=${!!tmdbMeta}`);
+
+    if (!baseMeta) {
+      console.error(`Cinemeta returned no data for ${type}/${id}`);
+      return { streams: [] };
+    }
+
     const meta = {
       ...baseMeta,
       names: {
-        en: baseMeta.name,
-        ...tmdbMeta?.names,
+        en: baseMeta.name || "Unknown",
+        ...(tmdbMeta?.names || {}),
       },
     };
 
     const allResolvers = getAllResolvers();
+    console.log(`Active resolvers: ${allResolvers.length}`);
 
-    const topItems = await getTopItems(meta, allResolvers, config);
+    const topItems = await getTopItems(meta, allResolvers, config || {});
 
     const streams = topItems.map((item) => ({
       url: item.video,
