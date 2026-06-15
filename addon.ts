@@ -10,7 +10,7 @@ import {
   type UserConfigData,
 } from "./src/userConfig/userConfig.ts";
 import { bytesToSize } from "./src/utils/convert.ts";
-import { getAllResolvers } from "./src/utils/resolvers.ts";
+import { getAllResolvers, getActiveResolvers } from "./src/utils/resolvers.ts";
 
 function getManifest() {
   const pkgData = readFileSync("./package.json", "utf8");
@@ -24,12 +24,29 @@ function getManifest() {
   return {
     id: "community.czstreams",
     version: pkg.version,
-    catalogs: [],
-    resources: ["stream"],
+    catalogs: [
+      {
+        type: "movie" as const,
+        id: "cz-streams-search",
+        name: "CZ Streams",
+        extra: [
+          { name: "search", isRequired: true },
+        ],
+      },
+      {
+        type: "series" as const,
+        id: "cz-streams-search",
+        name: "CZ Streams",
+        extra: [
+          { name: "search", isRequired: true },
+        ],
+      },
+    ],
+    resources: ["stream", "catalog"],
     types: ["movie", "series"],
     name: "CZ Streams",
     description: "CZ/SK stream aggregator — vyhľadáva a streamuje filmy a seriály z Prehraj.to, HellSpy, SOSAC, WebShare a ďalších českých/slovenských zdrojov.",
-    idPrefixes: ["tt"],
+    idPrefixes: ["tt", "czs"],
     logo: "https://play-lh.googleusercontent.com/qDMsLq4DWg_OHEX6YZvM1FRKnSmUhzYH-rYbWi4QBosX9xTDpO8hRUC-oPtNt6hoFX0=w256-h256-rw",
     behaviorHints: {
       configurable: true,
@@ -41,13 +58,117 @@ function getManifest() {
 
 const builder = new SDK.addonBuilder(getManifest());
 
+// --- Catalog handler (search mode) ---
+builder.defineCatalogHandler(async (props) => {
+  const { type, id, extra, config } = props as {
+    type: ContentType;
+    id: string;
+    extra: Record<string, string>;
+    config: UserConfigData;
+  };
+  const search = extra?.search;
+  if (!search || !search.trim()) {
+    return { metas: [] };
+  }
+
+  try {
+    console.log(`Catalog search: type=${type}, query="${search}"`);
+    const allResolvers = getAllResolvers();
+    const activeResolvers = await getActiveResolvers(allResolvers, config || {});
+
+    // Search all active resolvers in parallel
+    const searchPromises = activeResolvers.map(async (resolver) => {
+      try {
+        const results = await resolver.search(search, config || {});
+        return { resolver, results };
+      } catch (e) {
+        console.error(`Resolver ${resolver.resolverName} search error:`, e);
+        return { resolver, results: [] as any[] };
+      }
+    });
+
+    const settled = await Promise.allSettled(searchPromises);
+    const metas: any[] = [];
+
+    for (const result of settled) {
+      if (result.status !== "fulfilled") continue;
+      const { resolver, results } = result.value;
+      if (!results || results.length === 0) continue;
+
+      // Limit per resolver to avoid overwhelming Stremio
+      const top = results.slice(0, 20);
+
+      for (const r of top) {
+        metas.push({
+          id: `czs:${resolver.resolverName}:${encodeURIComponent(r.resolverId)}`,
+          type: type,
+          name: r.title,
+          poster: r.detailPageUrl
+            ? `https://prehraj.to/favicon.ico`
+            : "https://prehraj.to/favicon.ico",
+          posterShape: "regular" as const,
+          description: r.size ? `${bytesToSize(r.size)}` : "",
+        });
+      }
+    }
+
+    console.log(`Catalog search: ${metas.length} results for "${search}"`);
+    return { metas };
+  } catch (e) {
+    console.error("Catalog handler error:", e);
+    return { metas: [] };
+  }
+});
+
+// --- Stream handler (IMDb + czs: direct) ---
 builder.defineStreamHandler(async (props) => {
   const { type, id, config } = props as {
     type: ContentType;
     id: string;
     config: UserConfigData;
   };
+
   try {
+    // Handle czs: prefixed IDs (from catalog search results)
+    // Also check URL-encoded variant (czs%3A...)
+    if (id.startsWith("czs:") || id.startsWith("czs%3A") || decodeURIComponent(id).startsWith("czs:")) {
+      const decodedId = id.startsWith("czs%3A") ? decodeURIComponent(id) : id;
+      const parts = decodedId.split(":");
+      if (parts.length < 3) {
+        console.error(`Invalid czs ID format: ${id}`);
+        return { streams: [] };
+      }
+      const resolverName = parts[1];
+      const resolverId = parts.slice(2).join(":"); // resolverId may contain colons
+      console.log(`Stream handler czs: resolver=${resolverName}, id=${resolverId}`);
+
+      const allResolvers = getAllResolvers();
+      const resolver = allResolvers.find((r) => r.resolverName === resolverName);
+      if (!resolver) {
+        console.error(`Resolver not found: ${resolverName}`);
+        return { streams: [] };
+      }
+
+      const detail = await resolver.resolve(resolverId, config || {});
+      if (!detail.video) {
+        return { streams: [] };
+      }
+
+      return {
+        streams: [{
+          url: detail.video,
+          name: `${resolverName}`,
+          description: detail.title || "",
+          subtitles: detail.subtitles ?? undefined,
+          behaviorHints: {
+            videoSize: detail.size || 0,
+            ...(detail.behaviorHints ?? {}),
+          },
+        }],
+      };
+    }
+
+    // Standard flow: use Cinemeta + TMDB to search all resolvers
     const [baseMeta, tmdbMeta] = await Promise.all([
       getMeta(type, id),
       getTmdbDetails(id, "cs"),
@@ -57,8 +178,6 @@ builder.defineStreamHandler(async (props) => {
 
     if (!baseMeta) {
       console.log(`Cinemeta has no data for ${type}/${id}, falling back to TMDB`);
-      // If Cinemeta doesn't have it, build meta from TMDB data
-      // getSearchTerms needs name, names, released, runtime
       if (tmdbMeta) {
         const fallbackMeta = {
           id: id,
@@ -139,7 +258,6 @@ builder.defineStreamHandler(async (props) => {
     };
   } catch (e) {
     console.error(e);
-    // otherwise return no streams
     return { streams: [] };
   }
 });
