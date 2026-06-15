@@ -175,7 +175,7 @@ builder.defineStreamHandler(async (props) => {
 
   try {
     // Handle czs: prefixed IDs (from catalog search results)
-    // Also check URL-encoded variant (czs%3A...)
+    // The ID may still be URL-encoded (%2F for / in the path)
     if (id.startsWith("czs:") || id.startsWith("czs%3A") || decodeURIComponent(id).startsWith("czs:")) {
       const decodedId = id.startsWith("czs%3A") ? decodeURIComponent(id) : id;
       const parts = decodedId.split(":");
@@ -184,7 +184,8 @@ builder.defineStreamHandler(async (props) => {
         return { streams: [] };
       }
       const resolverName = parts[1];
-      const resolverId = parts.slice(2).join(":"); // resolverId may contain colons
+      // resolverId may still contain URL-encoded chars (%2F etc.) — decode it
+      const resolverId = decodeURIComponent(parts.slice(2).join(":"));
       console.log(`Stream handler czs: resolver=${resolverName}, id=${resolverId}`);
 
       const allResolvers = getAllResolvers();
