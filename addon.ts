@@ -56,7 +56,56 @@ builder.defineStreamHandler(async (props) => {
     console.log(`Stream handler: type=${type}, id=${id}, baseMeta=${!!baseMeta}, tmdbMeta=${!!tmdbMeta}`);
 
     if (!baseMeta) {
-      console.error(`Cinemeta returned no data for ${type}/${id}`);
+      console.log(`Cinemeta has no data for ${type}/${id}, falling back to TMDB`);
+      // If Cinemeta doesn't have it, build meta from TMDB data
+      // getSearchTerms needs name, names, released, runtime
+      if (tmdbMeta) {
+        const fallbackMeta = {
+          id: id,
+          type: type,
+          name: tmdbMeta.title || tmdbMeta.name || "Unknown",
+          names: tmdbMeta.names || { en: tmdbMeta.title || tmdbMeta.name || "Unknown" },
+          released: tmdbMeta.release_date || tmdbMeta.first_air_date || "",
+          runtime: "0",
+          genres: [],
+          poster: "",
+          background: "",
+          description: tmdbMeta.overview || "",
+          imdb_id: id,
+          popularity: 0,
+          videos: [],
+          trailers: [],
+          links: [],
+          behaviorHints: [],
+          award: "",
+          cast: [],
+          country: "",
+          director: [],
+          writer: [],
+          dvdRelease: "",
+          logo: "",
+          slug: id,
+          releaseInfo: (tmdbMeta.release_date || tmdbMeta.first_air_date || "").split("-")[0] || "",
+          year: (tmdbMeta.release_date || tmdbMeta.first_air_date || "").split("-")[0] || "",
+          popularities: { moviedb: 0, stremio: 0, trakt: 0, stremio_lib: 0 },
+        } as any;
+        const allResolvers = getAllResolvers();
+        const topItems = await getTopItems(fallbackMeta, allResolvers, config || {});
+        const streams = topItems.map((item) => ({
+          url: item.video,
+          name: `${item.resolverName}, (${bytesToSize(item.size)})`,
+          description: item.title,
+          subtitles: item.subtitles ?? undefined,
+          behaviorHints: {
+            videoSize: item.size,
+            bingeGroup: `${item.resolverName}-${item.resolverId}`,
+            ...(item.behaviorHints ?? {}),
+            filename: item.title,
+          },
+        }));
+        return { streams };
+      }
+      console.error(`TMDB also has no data for ${id}`);
       return { streams: [] };
     }
 

@@ -128,11 +128,15 @@ function getSearchTerms(meta: Meta): string[] {
       ]),
     );
   } else {
-    const releaseYear = new Date(meta.released).getFullYear();
+    const releaseYear = meta.released ? new Date(meta.released).getFullYear() : null;
     searches.push(
-      ...Object.values(meta.names).flatMap((name) => [
-        `${name} ${releaseYear}`,
-      ]),
+      ...Object.values(meta.names).flatMap((name: string) => {
+        const terms = [name]; // always search by title alone
+        if (releaseYear && !isNaN(releaseYear) && releaseYear > 1900) {
+          terms.push(`${name} ${releaseYear}`);
+        }
+        return terms;
+      }),
     );
   }
   return searches;

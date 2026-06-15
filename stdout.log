@@ -1,0 +1,7 @@
+(node:194595) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+HTTP addon accessible at: http://127.0.0.1:52932/manifest.json
+Stream handler: type=movie, id=tt7809652, baseMeta=true, tmdbMeta=true
+Active resolvers: 4
+Stream handler: type=movie, id=tt7809652, baseMeta=true, tmdbMeta=true
+Active resolvers: 4
