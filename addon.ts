@@ -144,15 +144,23 @@ builder.defineCatalogHandler(async (props) => {
       const top = results.slice(0, 20);
 
       for (const r of top) {
+        // Extract quality from title
+        const t = r.title.toLowerCase();
+        let quality = "";
+        if (/2160p|4k|uhd|2160/.test(t)) quality = "4K";
+        else if (/1440p|2k/.test(t)) quality = "2K";
+        else if (/1080p|fullhd|1080/.test(t)) quality = "1080p";
+        else if (/720p|\bhd\b/.test(t)) quality = "720p";
+        else if (/480p/.test(t)) quality = "480p";
+
+        const sizeStr = r.size ? String(r.size) : "";
         metas.push({
-          id: `czs:${resolver.resolverName}:${encodeURIComponent(r.resolverId)}`,
+          id: `czs:${resolver.resolverName}:${encodeURIComponent(r.resolverId)}:${quality}:${sizeStr}`,
           type: type,
           name: r.title,
-          poster: r.detailPageUrl
-            ? `https://prehraj.to/favicon.ico`
-            : "https://prehraj.to/favicon.ico",
+          poster: "https://prehraj.to/favicon.ico",
           posterShape: "regular" as const,
-          description: r.size ? `${bytesToSize(r.size)}` : "",
+          description: [quality, r.size ? bytesToSize(r.size) : ""].filter(Boolean).join(" • "),
         });
       }
     }
@@ -185,7 +193,9 @@ builder.defineStreamHandler(async (props) => {
       }
       const resolverName = parts[1];
       // resolverId may still contain URL-encoded chars (%2F etc.) — decode it
-      const resolverId = decodeURIComponent(parts.slice(2).join(":"));
+      const resolverId = decodeURIComponent(parts.slice(2, parts.length >= 5 ? parts.length - 2 : parts.length).join(":"));
+      const quality = parts.length >= 5 ? parts[parts.length - 2] : "";
+      const sizeBytes = parts.length >= 5 ? parseInt(parts[parts.length - 1]) || 0 : 0;
       console.log(`Stream handler czs: resolver=${resolverName}, id=${resolverId}`);
 
       const allResolvers = getAllResolvers();
@@ -200,14 +210,18 @@ builder.defineStreamHandler(async (props) => {
         return { streams: [] };
       }
 
+      const nameParts = [resolverName];
+      if (quality) nameParts.push(quality);
+      if (sizeBytes > 0) nameParts.push(bytesToSize(sizeBytes));
+
       return {
         streams: [{
           url: detail.video,
-          name: `${resolverName}`,
-          description: detail.title || "",
+          name: nameParts.join(", "),
+          description: [detail.title || "", quality, sizeBytes > 0 ? bytesToSize(sizeBytes) : ""].filter(Boolean).join(" • "),
           subtitles: detail.subtitles ?? undefined,
           behaviorHints: {
-            videoSize: detail.size || 0,
+            videoSize: sizeBytes || detail.size || 0,
             ...(detail.behaviorHints ?? {}),
           },
         }],
