@@ -33,14 +33,6 @@ function getManifest() {
           { name: "search", isRequired: true },
         ],
       },
-      {
-        type: "series" as const,
-        id: "cz-streams-search",
-        name: "CZ Streams",
-        extra: [
-          { name: "search", isRequired: true },
-        ],
-      },
     ],
     resources: ["stream", "catalog", "meta"],
     types: ["movie", "series"],
