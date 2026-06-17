@@ -108,7 +108,12 @@ export default async function handler(req: Request, res: Response) {
     };
 
     // Forward Range header for seeking support in ExoPlayer
-    if (req.headers.range) {
+    // SOSAC/streamuj.tv CDN only supports seeking within first ~25MB.
+    // Beyond that, Range is ignored, CDN returns video from start → player breaks.
+    // Stremio also sends Range on resume play (from remembered timestamp).
+    // For SOSAC: skip Range header entirely → video always starts from 0:00.
+    // PrehrajTo, HellSpy: forward Range normally (they support full seeking).
+    if (req.headers.range && resolverName !== "Sosac") {
       fetchHeaders["Range"] = req.headers.range as string;
     }
 
