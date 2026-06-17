@@ -107,14 +107,21 @@ export default async function handler(req: Request, res: Response) {
       "Accept-Language": "en-GB,en;q=0.9,cs;q=0.8,sk;q=0.7",
     };
 
-    // Forward Range header for seeking support in ExoPlayer
-    // SOSAC/streamuj.tv CDN only supports seeking within first ~25MB.
-    // Beyond that, Range is ignored, CDN returns video from start → player breaks.
-    // Stremio also sends Range on resume play (from remembered timestamp).
-    // For SOSAC: skip Range header entirely → video always starts from 0:00.
-    // PrehrajTo, HellSpy: forward Range normally (they support full seeking).
+    // Forward Range header for seeking support in ExoPlayer.
+    // HellSpy, PrehrajTo: forward Range normally (they support full seeking).
+    // SOSAC: use 301 redirect to CDN URL instead of proxying (streamuj.tv
+    // CDN only supports 25MB chunks through proxy; direct streaming
+    // via 301 redirect handles seeking within its native limits better).
     if (req.headers.range && resolverName !== "Sosac") {
       fetchHeaders["Range"] = req.headers.range as string;
+    }
+
+    // SOSAC: redirect to CDN URL directly (streamuj.tv CDN is unreliable
+    // through proxy due to 25MB chunk limit). Other resolvers: proxy.
+    if (resolverName === "Sosac") {
+      res.writeHead(301, { Location: mediaUrl });
+      res.end();
+      return;
     }
 
     const cdnResp = await fetch(mediaUrl, { method: "GET", headers: fetchHeaders });

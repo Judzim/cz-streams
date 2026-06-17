@@ -113,6 +113,29 @@ async function getResultStreamUrls(
   return { video, subtitles: [] };
 }
 
+/** Get file size from CDN via HEAD request (streamuj.tv doesn't include size in search API) */
+async function getStreamSize(videoUrl: string): Promise<number> {
+  try {
+    const resp = await fetch(videoUrl, {
+      method: "HEAD",
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(5000),
+    });
+    // Content-Range has: bytes start-end/total
+    const cr = resp.headers.get("content-range");
+    if (cr) {
+      const total = cr.split("/")[1];
+      if (total && !isNaN(Number(total))) return Number(total);
+    }
+    // Fallback to Content-Length
+    const cl = resp.headers.get("content-length");
+    if (cl) return Number(cl);
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
 export function getResolver(): Resolver {
   return {
     resolverName: "Sosac",
@@ -134,7 +157,13 @@ export function getResolver(): Resolver {
 
     resolve: async (resolverId) => {
       try {
-        return await getResultStreamUrls(resolverId);
+        const detail = await getResultStreamUrls(resolverId);
+        // Try to get file size from CDN for display in stream list
+        if (detail.video && !detail.size) {
+          const size = await getStreamSize(detail.video);
+          if (size > 0) detail.size = size;
+        }
+        return detail;
       } catch (e) {
         console.error("Sosac resolve error:", e);
         return { video: "" };

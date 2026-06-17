@@ -96,11 +96,33 @@ async function getResultStreamUrls(
     return { video: "" };
   }
 
-  const best = resolutions[0];
-  let videoUrl = data.conversions[String(best)];
+  // Try qualities from best to worst, return first working one
+  let videoUrl = "";
+  for (const res of resolutions) {
+    const candidate = data.conversions[String(res)];
+    const fullUrl = candidate.startsWith("//") ? "https:" + candidate : candidate;
 
-  // Ensure full URL
-  if (videoUrl.startsWith("//")) videoUrl = "https:" + videoUrl;
+    try {
+      const testResp = await fetch(fullUrl, {
+        method: "HEAD",
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (testResp.ok && testResp.headers.get("content-type")?.includes("video")) {
+        videoUrl = fullUrl;
+        break;
+      }
+    } catch {
+      // try next quality
+    }
+  }
+
+  // Fallback: if no quality responded, use the best quality anyway
+  if (!videoUrl) {
+    const best = resolutions[0];
+    videoUrl = data.conversions[String(best)];
+    if (videoUrl.startsWith("//")) videoUrl = "https:" + videoUrl;
+  }
 
   // Extract subtitles
   const subtitles: { id: string; url: string; lang: string }[] = [];
