@@ -15,9 +15,10 @@ Stremio addon pre streamovanie filmov a seriálov z českých a slovenských zdr
 
 ## Inštalácia
 
-```
+```bash
 npm install
-npm start
+npm start        # bežné spustenie
+npm run start:install  # spustenie + vyžiada inštaláciu
 ```
 
 Addon beží na porte 52932 (alebo $PORT).
@@ -31,17 +32,21 @@ http://localhost:52932/manifest.json
 Addon je configurable — v Stremio UI vieš nastaviť:
 - **PrehrajTo username/password** — pre premium streamy
 - **WebShare username/password** — pre prístup k WebShare
+- **Zoradenie výsledkov** — Default / Podle velikosti / Podle kvality
+- **Skryť z globálneho vyhľadávania** — checkbox pre vypnutie z celosietového vyhľadávania
 
-Bez prihlásenia fungujú HellSpy a SOSAC automaticky.
+Bez prihlásenia fungujú HellSpy a SOSAC automaticky. Prehraj.to funguje aj anonymne (obmedzenejšie výsledky).
 
 ## Ako to funguje
 
 1. Stremio pošle IMDb ID (`tt1234567`) na `/stream` endpoint
 2. Addon načíta meta z Cinemeta + TMDB (názvy, rok, sezóna/epizóda)
 3. Všetky aktívne resolvery paralelne prehľadávajú svoje zdroje
-4. Výsledky sa ohodnotia scoring systémom (názov, epizóda, rok, runtime, veľkosť, kvalita)
-5. Najlepšie výsledky sa vrátia do Stremia
-6. Keď používateľ klikne na stream, addon cez `/media/` proxy presmeruje na reálne video
+4. Výsledky sa ohodnotia scoring systémom (názov, epizóda, rok, runtime, veľkosť, kľúčové slová)
+5. Najlepšie výsledky sa vrátia do Stremia (5-minútová cache pre opakované dotazy)
+6. Po kliknutí na stream addon presmeruje (301 redirect) na reálne video
+
+Addon podporuje aj textové vyhľadávanie priamo zo Stremio katalógu.
 
 ## Technické detaily
 
@@ -49,7 +54,10 @@ Bez prihlásenia fungujú HellSpy a SOSAC automaticky.
 - `stremio-addon-sdk` pre kompatibilitu
 - `linkedom` pre HTML parsing (rýchlejší ako JSDOM)
 - `crypto-js` pre AES dešifrovanie (SOSAC, WebShare)
-- Scraping na strane servera, Stremio dostáva priame video linky
+- `moviedb-promise` pre TMDB API
+- In-memory cache s TTL pre vyhľadávanie a metadata
+- Každý zdroj je samostatný resolver s jednotným rozhraním (search → score → resolve)
+- Scraping na strane servera, Stremio dostáva priame video linky (cez 301 redirect)
 
 ## Deployment
 
@@ -68,3 +76,12 @@ Nastav `$PORT` a spusti:
 ```bash
 node --experimental-strip-types server.ts
 ```
+
+## Endpointy
+
+| Endpoint | Účel |
+|----------|------|
+| `/configure` | Konfiguračné UI v prehliadači |
+| `/media/<resolver>/<id>` | Resolvuje a presmeruje na video URL (301) |
+| `/test/?q=<query>` | Debug endpoint pre testovanie resolverov |
+| `/clean/` | Manuálne vyčistenie cache |
