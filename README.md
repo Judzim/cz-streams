@@ -6,12 +6,10 @@ Stremio addon pre streamovanie filmov a seriálov z českých a slovenských zdr
 
 | Zdroj | Vyžaduje login | Status |
 |-------|---------------|--------|
-| **Prehraj.to** | Voliteľný (premium) | ✅ Aktívny |
-| **HellSpy** | Nie | ✅ Aktívny — API hellspy.to/gw |
-| **SOSAC** | Nie | ✅ Aktívny — JSON API + streamuj.tv |
 | **WebShare** | Áno | ✅ Aktívny (s prihlásením) |
-| FastShare | Nie | ❌ Free streaming zrušený |
-| **Sledujte.to** | Voliteľný | ✅ Aktívny — nové API |
+| **HellSpy** | Nie | ✅ Aktívny — API hellspy.to/gw |
+| **SOSAC** | Nie | ✅ Aktívny — JSON search + streamuj.tv |
+| **Prehraj.to** | Voliteľný (premium) | ✅ Aktívny |
 
 ## Inštalácia
 
@@ -35,7 +33,7 @@ Addon je configurable — v Stremio UI vieš nastaviť:
 - **Zoradenie výsledkov** — Default / Podle velikosti / Podle kvality
 - **Skryť z globálneho vyhľadávania** — checkbox pre vypnutie z celosietového vyhľadávania
 
-Prehraj.to funguje aj anonymne (obmedzenejšie výsledky). WebShare vyžaduje prihlásenie. HellSpy a SOSAC fungujú bez prihlásenia. Sledujte.to funguje aj anonymne (obmedzená dĺžka prehrávania).
+Prehraj.to funguje aj anonymne (obmedzenejšie výsledky). WebShare vyžaduje prihlásenie. HellSpy a SOSAC fungujú bez prihlásenia.
 
 ## Ako to funguje
 
@@ -44,7 +42,7 @@ Prehraj.to funguje aj anonymne (obmedzenejšie výsledky). WebShare vyžaduje pr
 3. Všetky aktívne resolvery paralelne prehľadávajú svoje zdroje
 4. Výsledky sa ohodnotia scoring systémom (názov, epizóda, rok, runtime, veľkosť, kľúčové slová)
 5. Najlepšie výsledky sa vrátia do Stremia (5-minútová cache pre opakované dotazy)
-6. Po kliknutí na stream addon presmeruje (301 redirect) na reálne video
+6. Po kliknutí na stream addon proxyje video z CDN cez Pi server
 
 Addon podporuje aj textové vyhľadávanie priamo zo Stremio katalógu.
 
@@ -57,8 +55,8 @@ Addon podporuje aj textové vyhľadávanie priamo zo Stremio katalógu.
 - `moviedb-promise` pre TMDB API
 - In-memory cache s TTL pre vyhľadávanie a metadata
 - Každý zdroj je samostatný resolver s jednotným rozhraním (search → score → resolve)
-- Scraping HTML (PrehrajTo, WebShare) + JSON API (HellSpy, SOSAC, SledujteTo)
-- Stremio dostáva priame video linky (cez 301 redirect)
+- Scraping HTML (PrehrajTo, WebShare) + JSON API (HellSpy, SOSAC)
+- Stremio dostáva video cez proxy (CDN → Pi server → klient)
 
 ## Deployment
 
@@ -83,6 +81,6 @@ node --experimental-strip-types server.ts
 | Endpoint | Účel |
 |----------|------|
 | `/configure` | Konfiguračné UI v prehliadači |
-| `/media/<resolver>/<id>` | Resolvuje a presmeruje na video URL (301) |
+| `/media/<resolver>/<id>` | Proxy videa z CDN cez server |
 | `/test/?q=<query>` | Debug endpoint pre testovanie resolverov |
 | `/clean/` | Manuálne vyčistenie cache |
