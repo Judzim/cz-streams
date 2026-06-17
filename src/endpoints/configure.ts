@@ -57,6 +57,19 @@ function renderField(field: ConfigField): string {
     return `<div class="field checkbox-wrap"><input type="checkbox" name="disableGlobalSearch" id="disableGlobalSearch" value="true"><label for="disableGlobalSearch">Skrýt výsledky z globálního vyhledávání</label></div>`;
   }
 
+  // select type — render as dropdown
+  if (field.type === "select" && field.options?.length) {
+    const options = field.options
+      .map(
+        (opt) =>
+          `<option value="${opt.key}"${
+            opt.key === field.default ? " selected" : ""
+          }>${opt.value}</option>`,
+      )
+      .join("\n      ");
+    return `<div class="field"><label for="${field.key}">${field.title}</label>\n<select name="${field.key}" id="${field.key}">\n      ${options}\n    </select></div>`;
+  }
+
   // text type — render as text input
   return `<div class="field">${label}<input type="text" name="${field.key}" id="${field.key}" placeholder="${field.default || field.title}" spellcheck="false"></div>`;
 }
@@ -186,6 +199,10 @@ const HTML = (fieldsHtml: string) => `<!DOCTYPE html>
 function saveConfig() {
   const form = document.getElementById('configForm');
   const data = {};
+  const selects = form.querySelectorAll('select');
+  for (const sel of selects) {
+    data[sel.name] = sel.value;
+  }
   const inputs = form.querySelectorAll('input');
   // Checkbox handling for disableGlobalSearch
   const cb = document.querySelector('[name="disableGlobalSearch"]');

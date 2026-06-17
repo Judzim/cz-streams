@@ -108,20 +108,9 @@ export default async function handler(req: Request, res: Response) {
     };
 
     // Forward Range header for seeking support in ExoPlayer.
-    // HellSpy, PrehrajTo: forward Range normally (they support full seeking).
-    // SOSAC: use 301 redirect to CDN URL instead of proxying (streamuj.tv
-    // CDN only supports 25MB chunks through proxy; direct streaming
-    // via 301 redirect handles seeking within its native limits better).
-    if (req.headers.range && resolverName !== "Sosac") {
+    // HellSpy, PrehrajTo, WebShare: forward Range normally.
+    if (req.headers.range) {
       fetchHeaders["Range"] = req.headers.range as string;
-    }
-
-    // SOSAC: redirect to CDN URL directly (streamuj.tv CDN is unreliable
-    // through proxy due to 25MB chunk limit). Other resolvers: proxy.
-    if (resolverName === "Sosac") {
-      res.writeHead(301, { Location: mediaUrl });
-      res.end();
-      return;
     }
 
     const cdnResp = await fetch(mediaUrl, { method: "GET", headers: fetchHeaders });

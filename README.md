@@ -8,7 +8,6 @@ Stremio addon pre streamovanie filmov a seriálov z českých a slovenských zdr
 |-------|---------------|--------|
 | **WebShare** | Áno | ✅ Aktívny (s prihlásením) |
 | **HellSpy** | Nie | ✅ Aktívny — API hellspy.to/gw |
-| **SOSAC** | Nie | ✅ Aktívny — JSON search + streamuj.tv |
 | **Prehraj.to** | Voliteľný (premium) | ✅ Aktívny |
 
 ## Inštalácia
@@ -33,7 +32,7 @@ Addon je configurable — v Stremio UI vieš nastaviť:
 - **Zoradenie výsledkov** — Default / Podle velikosti / Podle kvality
 - **Skryť z globálneho vyhľadávania** — checkbox pre vypnutie z celosietového vyhľadávania
 
-Prehraj.to funguje aj anonymne (obmedzenejšie výsledky). WebShare vyžaduje prihlásenie. HellSpy a SOSAC fungujú bez prihlásenia.
+Prehraj.to funguje aj anonymne (obmedzenejšie výsledky). WebShare vyžaduje prihlásenie. HellSpy funguje bez prihlásenia.
 
 ## Ako to funguje
 
@@ -55,7 +54,7 @@ Addon podporuje aj textové vyhľadávanie priamo zo Stremio katalógu.
 - `moviedb-promise` pre TMDB API
 - In-memory cache s TTL pre vyhľadávanie a metadata
 - Každý zdroj je samostatný resolver s jednotným rozhraním (search → score → resolve)
-- Scraping HTML (PrehrajTo, WebShare) + JSON API (HellSpy, SOSAC)
+- Scraping HTML (PrehrajTo, WebShare) + JSON API (HellSpy)
 - Stremio dostáva video cez proxy (CDN → Pi server → klient)
 
 ## Deployment
