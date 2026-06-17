@@ -3,23 +3,12 @@ import { type Request, type Response } from "express";
 import { type UserConfigData } from "../userConfig/userConfig.ts";
 import { getActiveResolvers, getAllResolvers } from "../utils/resolvers.ts";
 
-const NL = "\r\n\r\n";
-
-/** Headers NOT to forward from the CDN response to the client */
-const SKIP_HEADERS = new Set([
-  "set-cookie",
-  "transfer-encoding",
-  "connection",
-  "keep-alive",
-  "content-encoding",
-]);
-
 /**
  * In-memory cache for resolved CDN URLs.
  * Key: resolverName:mediaId → { url, expires }
  * Cache ensures seek requests within the same stream use the same
- * CDN URL, because some CDNs (streamuj.tv) return a new tokenized
- * URL on each resolve — seeking with a new token breaks playback.
+ * CDN URL, because some resolvers return a new tokenized URL on each
+ * resolve — seeking with a new token breaks playback.
  */
 const URL_CACHE = new Map<string, { url: string; expires: number }>();
 const CACHE_TTL_MS = 60_000; // 60 seconds — long enough for seek operations
@@ -49,7 +38,7 @@ async function getMediaUrl(
 ): Promise<string> {
   const cacheKey = `${resolver}:${id}`;
 
-  // Check cache first
+  // Check cache first (seek requests hit this path)
   const cached = getCachedUrl(cacheKey);
   if (cached) {
     return cached;
@@ -85,7 +74,6 @@ export default async function handler(req: Request, res: Response) {
     const mediaId = decodeURIComponent(pathParts[3]);
 
     // Attempt to get cached URL early (before awaiting resolve)
-    // so seek requests skip the resolve altogether
     const cacheKey = `${resolverName}:${mediaId}`;
     let mediaUrl = getCachedUrl(cacheKey);
 
@@ -99,55 +87,26 @@ export default async function handler(req: Request, res: Response) {
       return;
     }
 
-    // Fetch from CDN with browser-like headers
-    const fetchHeaders: Record<string, string> = {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
-      Accept: "*/*",
-      "Accept-Language": "en-GB,en;q=0.9,cs;q=0.8,sk;q=0.7",
-    };
+    // CORS headers so the browser/player trusts the initial response
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader(
+      "Access-Control-Expose-Headers",
+      "Content-Length, Content-Range, Accept-Ranges",
+    );
 
-    // Forward Range header for seeking support in ExoPlayer.
-    // HellSpy, PrehrajTo, WebShare: forward Range normally.
-    if (req.headers.range) {
-      fetchHeaders["Range"] = req.headers.range as string;
-    }
-
-    const cdnResp = await fetch(mediaUrl, { method: "GET", headers: fetchHeaders });
-
-    // Build response headers (forward CDN headers, skip internal ones)
-    const respHeaders: Record<string, string> = {};
-    for (const [key, value] of cdnResp.headers) {
-      if (!SKIP_HEADERS.has(key.toLowerCase())) {
-        respHeaders[key] = value;
-      }
-    }
-
-    // Ensure CORS headers for cross-origin requests
-    respHeaders["Access-Control-Allow-Origin"] = "*";
-    respHeaders["Access-Control-Expose-Headers"] =
-      "Content-Length, Content-Range, Accept-Ranges";
-
-    res.writeHead(cdnResp.status, respHeaders);
-
-    // Pipe CDN response body directly to the client
-    const reader = cdnResp.body?.getReader();
-    if (reader) {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(value);
-      }
-    }
+    // 301 redirect to CDN URL — video streamuje priamo z CDN, nie cez server.
+    // CDN (premiumcdn.net, onecdn1.net, webshare.cz) podporujú CORS aj Range,
+    // takže seek a prehrávanie fungujú priamo z CDN bez zaťaženia servera.
+    res.writeHead(301, { Location: mediaUrl });
     res.end();
   } catch (e) {
-    console.error("Media proxy error:", e);
+    console.error("Media redirect error:", e);
     if (res.headersSent) {
       res.end();
       return;
     }
     res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-    res.write((e instanceof Error ? e.message : String(e)) + NL);
+    res.write((e instanceof Error ? e.message : String(e)) + "\r\n\r\n");
     res.end();
   }
 }

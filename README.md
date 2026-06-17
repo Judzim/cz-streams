@@ -41,7 +41,7 @@ Prehraj.to funguje aj anonymne (obmedzenejšie výsledky). WebShare vyžaduje pr
 3. Všetky aktívne resolvery paralelne prehľadávajú svoje zdroje
 4. Výsledky sa ohodnotia scoring systémom (názov, epizóda, rok, runtime, veľkosť, kľúčové slová)
 5. Najlepšie výsledky sa vrátia do Stremia (5-minútová cache pre opakované dotazy)
-6. Po kliknutí na stream addon proxyje video z CDN cez Pi server
+6. Po kliknutí na stream addon presmeruje klienta priamo na CDN URL (301 redirect)
 
 Addon podporuje aj textové vyhľadávanie priamo zo Stremio katalógu.
 
@@ -55,7 +55,7 @@ Addon podporuje aj textové vyhľadávanie priamo zo Stremio katalógu.
 - In-memory cache s TTL pre vyhľadávanie a metadata
 - Každý zdroj je samostatný resolver s jednotným rozhraním (search → score → resolve)
 - Scraping HTML (PrehrajTo, WebShare) + JSON API (HellSpy)
-- Stremio dostáva video cez proxy (CDN → Pi server → klient)
+- Stremio dostáva video cez 301 redirect (priame streamovanie z CDN, server len presmeruje)
 
 ## Deployment
 
