@@ -11,14 +11,51 @@ const SKIP_HEADERS = new Set([
   "transfer-encoding",
   "connection",
   "keep-alive",
-  "content-encoding", // we let the client handle it
+  "content-encoding",
 ]);
+
+/**
+ * In-memory cache for resolved CDN URLs.
+ * Key: resolverName:mediaId → { url, expires }
+ * Cache ensures seek requests within the same stream use the same
+ * CDN URL, because some CDNs (streamuj.tv) return a new tokenized
+ * URL on each resolve — seeking with a new token breaks playback.
+ */
+const URL_CACHE = new Map<string, { url: string; expires: number }>();
+const CACHE_TTL_MS = 60_000; // 60 seconds — long enough for seek operations
+
+function getCachedUrl(key: string): string | null {
+  const entry = URL_CACHE.get(key);
+  if (entry && Date.now() < entry.expires) return entry.url;
+  URL_CACHE.delete(key);
+  return null;
+}
+
+function setCachedUrl(key: string, url: string) {
+  URL_CACHE.set(key, { url, expires: Date.now() + CACHE_TTL_MS });
+  // Simple cleanup: if cache grows too large, clear old entries
+  if (URL_CACHE.size > 100) {
+    const now = Date.now();
+    for (const [k, v] of URL_CACHE) {
+      if (now > v.expires) URL_CACHE.delete(k);
+    }
+  }
+}
 
 async function getMediaUrl(
   resolver: string,
   id: string,
   config: UserConfigData,
 ): Promise<string> {
+  const cacheKey = `${resolver}:${id}`;
+
+  // Check cache first
+  const cached = getCachedUrl(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  // Resolve fresh
   const allResolvers = getAllResolvers();
   const activeResolvers = await getActiveResolvers(allResolvers, config);
   const selectedResolver = activeResolvers.find(
@@ -28,7 +65,14 @@ async function getMediaUrl(
     throw new Error("Resolver not found: " + resolver);
   }
   const detail = await selectedResolver.resolve(id, config);
-  return detail.video;
+  const videoUrl = detail.video;
+
+  // Cache the result for subsequent seek requests
+  if (videoUrl) {
+    setCachedUrl(cacheKey, videoUrl);
+  }
+
+  return videoUrl;
 }
 
 export default async function handler(req: Request, res: Response) {
@@ -40,7 +84,15 @@ export default async function handler(req: Request, res: Response) {
     const resolverName = decodeURIComponent(pathParts[2]);
     const mediaId = decodeURIComponent(pathParts[3]);
 
-    const mediaUrl = await getMediaUrl(resolverName, mediaId, config);
+    // Attempt to get cached URL early (before awaiting resolve)
+    // so seek requests skip the resolve altogether
+    const cacheKey = `${resolverName}:${mediaId}`;
+    let mediaUrl = getCachedUrl(cacheKey);
+
+    if (!mediaUrl) {
+      mediaUrl = await getMediaUrl(resolverName, mediaId, config);
+    }
+
     if (!mediaUrl) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("No video URL resolved for " + mediaId);
@@ -58,7 +110,6 @@ export default async function handler(req: Request, res: Response) {
     // Forward Range header for seeking support in ExoPlayer
     if (req.headers.range) {
       fetchHeaders["Range"] = req.headers.range as string;
-      console.log(`Range request: ${req.headers.range} for ${resolverName}/${mediaId}`);
     }
 
     const cdnResp = await fetch(mediaUrl, { method: "GET", headers: fetchHeaders });
@@ -70,13 +121,15 @@ export default async function handler(req: Request, res: Response) {
         respHeaders[key] = value;
       }
     }
-    // Explicit CORS headers
+
+    // Ensure CORS headers for cross-origin requests
     respHeaders["Access-Control-Allow-Origin"] = "*";
-    respHeaders["Access-Control-Expose-Headers"] = "Content-Length, Content-Range, Accept-Ranges";
+    respHeaders["Access-Control-Expose-Headers"] =
+      "Content-Length, Content-Range, Accept-Ranges";
 
     res.writeHead(cdnResp.status, respHeaders);
 
-    // Pipe CDN response body to Stremio client
+    // Pipe CDN response body directly to the client
     const reader = cdnResp.body?.getReader();
     if (reader) {
       while (true) {
@@ -88,7 +141,6 @@ export default async function handler(req: Request, res: Response) {
     res.end();
   } catch (e) {
     console.error("Media proxy error:", e);
-    // If headers already sent, we can't send an error response
     if (res.headersSent) {
       res.end();
       return;

@@ -130,10 +130,18 @@ async function getResultStreamUrls(
     hash?: string;
     video_url?: string;
     link_id?: number;
+    is_playback_enabled?: boolean;
     subtitles?: Array<{ file: string; label: string; srclang: string }>;
   };
   if (!linkData.hash) return { video: "" };
 
+  // Skip files where playback is explicitly disabled
+  if (linkData.is_playback_enabled === false) {
+    console.log(`SledujteTo: file ${fileId} playback disabled, skipping`);
+    return { video: "" };
+  }
+
+  // Use video_url from add-file-link, or build from hash
   const video = linkData.video_url || `${mirror}/player/index/sledujteto/${linkData.hash}`;
 
   // Extract subtitles
