@@ -7,8 +7,8 @@ Stremio addon pre streamovanie filmov a seriálov z českých a slovenských zdr
 | Zdroj | Vyžaduje login | Status |
 |-------|---------------|--------|
 | **Prehraj.to** | Voliteľný (premium) | ✅ Aktívny |
-| **HellSpy** | Nie | ✅ Aktívny |
-| **SOSAC** | Nie | ✅ Aktívny |
+| **HellSpy** | Nie | ❌ Rozbitý — web prerobený na Next.js |
+| **SOSAC** | Nie | ❌ Rozbitý — search cez JS, selectory nesedia |
 | **WebShare** | Áno | ✅ Aktívny (s prihlásením) |
 | FastShare | Nie | ❌ Seek nefunguje |
 | Sledujte.to | Áno | ❌ 30s keepalive |
@@ -35,7 +35,7 @@ Addon je configurable — v Stremio UI vieš nastaviť:
 - **Zoradenie výsledkov** — Default / Podle velikosti / Podle kvality
 - **Skryť z globálneho vyhľadávania** — checkbox pre vypnutie z celosietového vyhľadávania
 
-Bez prihlásenia fungujú HellSpy a SOSAC automaticky. Prehraj.to funguje aj anonymne (obmedzenejšie výsledky).
+Prehraj.to funguje aj anonymne (obmedzenejšie výsledky). WebShare vyžaduje prihlásenie. HellSpy a SOSAC sú momentálne rozbité — weby zmenili štruktúru.
 
 ## Ako to funguje
 
