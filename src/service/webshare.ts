@@ -141,7 +141,7 @@ async function getSearchResults(
       size: sizeToBytes(sizeStr),
     };
   });
-  return results;
+  return results.filter(Boolean);
 }
 
 export function getResolver(): Resolver {

@@ -10,6 +10,7 @@ import SDK from "stremio-addon-sdk";
 
 import { addonInterface } from "./addon.ts";
 import cleanupHandler from "./src/endpoints/cleanup.ts";
+import configureHandler from "./src/endpoints/configure.ts";
 import mediaHandler from "./src/endpoints/getMediaUrl.ts";
 import testHandler from "./src/endpoints/test.ts";
 
@@ -26,6 +27,11 @@ import testHandler from "./src/endpoints/test.ts";
     server.removeAllListeners("request");
     server.on("request", async (req: Request, res: Response) => {
       try {
+        if (req.url && req.url.startsWith("/configure")) {
+          configureHandler(req, res);
+          return;
+        }
+
         if (req.url && req.url.startsWith("/media/")) {
           mediaHandler(req, res);
           return;

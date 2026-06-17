@@ -11,15 +11,34 @@ import {
 } from "./src/userConfig/userConfig.ts";
 import { bytesToSize } from "./src/utils/convert.ts";
 import { getAllResolvers, getActiveResolvers } from "./src/utils/resolvers.ts";
+import { getServerUrl } from "./src/utils/getServerUrl.ts";
+import { get as cacheGet, set as cacheSet } from "./src/utils/cache.ts";
 
 function getManifest() {
   const pkgData = readFileSync("./package.json", "utf8");
   const pkg = JSON.parse(pkgData);
   const allResolvers = getAllResolvers();
-  const userConfigDef = allResolvers.reduce(
+  const resolverConfigDefs = allResolvers.reduce(
     (defs, resolver) => [...defs, ...resolver.getConfigFields()],
     [] as ConfigField[],
   );
+
+  const globalConfig: ConfigField[] = [
+    {
+      key: "sortOrder",
+      type: "text" as const,
+      title: "Zoradenie výsledkov (default/size/quality)",
+      default: "default",
+    },
+    {
+      key: "disableGlobalSearch",
+      type: "text" as const,
+      title: "Skryť z globálneho vyhľadávania (true/false)",
+      default: "false",
+    },
+  ];
+
+  const config = [...resolverConfigDefs, ...globalConfig];
 
   return {
     id: "community.czstreams",
@@ -40,11 +59,12 @@ function getManifest() {
     description: "CZ/SK stream aggregator — vyhľadáva a streamuje filmy a seriály z Prehraj.to, HellSpy, SOSAC, WebShare a ďalších českých/slovenských zdrojov.",
     idPrefixes: ["tt", "czs"],
     logo: "https://play-lh.googleusercontent.com/qDMsLq4DWg_OHEX6YZvM1FRKnSmUhzYH-rYbWi4QBosX9xTDpO8hRUC-oPtNt6hoFX0=w256-h256-rw",
+    config: config as any,
     behaviorHints: {
       configurable: true,
-      configurationRequired: true,
+      configurationRequired: false,
+      configurationUrl: "/configure",
     },
-    config: userConfigDef,
   } satisfies Manifest;
 }
 
@@ -58,6 +78,24 @@ builder.defineMetaHandler(async (props) => {
   };
 
   try {
+    if (id.startsWith("czs:search:") || id.startsWith("czs%3Asearch%3A") || decodeURIComponent(id).startsWith("czs:search:")) {
+      const decodedId = id.startsWith("czs%3A") ? decodeURIComponent(id) : id;
+      const rawQuery = decodedId.slice("czs:search:".length);
+      const query = decodeURIComponent(rawQuery);
+
+      return {
+        meta: {
+          id: id,
+          type: type,
+          name: "Filmy a seriály",
+          poster: "https://prehraj.to/favicon.ico",
+          background: "https://prehraj.to/favicon.ico",
+          posterShape: "regular" as const,
+          description: query ? `Hľadať: ${query}` : "Prehľadávať filmy a seriály",
+        },
+      };
+    }
+
     if (id.startsWith("czs:") || id.startsWith("czs%3A") || decodeURIComponent(id).startsWith("czs:")) {
       const decodedId = id.startsWith("czs%3A") ? decodeURIComponent(id) : id;
       const parts = decodedId.split(":");
@@ -95,9 +133,9 @@ builder.defineMetaHandler(async (props) => {
   return { meta: null };
 });
 
-// --- Catalog handler (search mode) ---
+// --- Catalog handler (single search item) ---
 builder.defineCatalogHandler(async (props) => {
-  const { type, id, extra, config } = props as {
+  const { type, extra, config } = props as {
     type: ContentType;
     id: string;
     extra: Record<string, string>;
@@ -108,61 +146,25 @@ builder.defineCatalogHandler(async (props) => {
     return { metas: [] };
   }
 
-  try {
-    console.log(`Catalog search: type=${type}, query="${search}"`);
-    const allResolvers = getAllResolvers();
-    const activeResolvers = await getActiveResolvers(allResolvers, config || {});
-
-    // Search all active resolvers in parallel
-    const searchPromises = activeResolvers.map(async (resolver) => {
-      try {
-        const results = await resolver.search(search, config || {});
-        return { resolver, results };
-      } catch (e) {
-        console.error(`Resolver ${resolver.resolverName} search error:`, e);
-        return { resolver, results: [] as any[] };
-      }
-    });
-
-    const settled = await Promise.allSettled(searchPromises);
-    const metas: any[] = [];
-
-    for (const result of settled) {
-      if (result.status !== "fulfilled") continue;
-      const { resolver, results } = result.value;
-      if (!results || results.length === 0) continue;
-
-      // Limit per resolver to avoid overwhelming Stremio
-      const top = results.slice(0, 20);
-
-      for (const r of top) {
-        // Extract quality from title
-        const t = r.title.toLowerCase();
-        let quality = "";
-        if (/2160p|4k|uhd|2160/.test(t)) quality = "4K";
-        else if (/1440p|2k/.test(t)) quality = "2K";
-        else if (/1080p|fullhd|1080/.test(t)) quality = "1080p";
-        else if (/720p|\bhd\b/.test(t)) quality = "720p";
-        else if (/480p/.test(t)) quality = "480p";
-
-        const sizeStr = r.size ? String(r.size) : "";
-        metas.push({
-          id: `czs:${resolver.resolverName}:${encodeURIComponent(r.resolverId)}:${quality}:${sizeStr}`,
-          type: type,
-          name: r.title,
-          poster: "https://prehraj.to/favicon.ico",
-          posterShape: "regular" as const,
-          description: [quality, r.size ? bytesToSize(r.size) : ""].filter(Boolean).join(" • "),
-        });
-      }
-    }
-
-    console.log(`Catalog search: ${metas.length} results for "${search}"`);
-    return { metas };
-  } catch (e) {
-    console.error("Catalog handler error:", e);
+  // Check if global search results are disabled
+  if (config?.disableGlobalSearch === "true") {
+    console.log(`Catalog search disabled for global search, query="${search}"`);
     return { metas: [] };
   }
+
+  console.log(`Catalog search: type=${type}, query="${search}"`);
+
+  // Return a single item that acts as a search container
+  return {
+    metas: [{
+      id: `czs:search:${encodeURIComponent(search.trim())}`,
+      type: type,
+      name: "Filmy a seriály",
+      poster: "https://prehraj.to/favicon.ico",
+      posterShape: "regular" as const,
+      description: `🔍 ${search.trim()}`,
+    }],
+  };
 });
 
 // --- Stream handler (IMDb + czs: direct) ---
@@ -174,7 +176,98 @@ builder.defineStreamHandler(async (props) => {
   };
 
   try {
-    // Handle czs: prefixed IDs (from catalog search results)
+    // Handle czs:search: prefixed IDs (from single-item catalog search)
+    if (id.startsWith("czs:search:") || id.startsWith("czs%3Asearch%3A") || decodeURIComponent(id).startsWith("czs:search:")) {
+      const decodedId = id.startsWith("czs%3A") ? decodeURIComponent(id) : id;
+      const rawQuery = decodedId.slice("czs:search:".length);
+      const query = decodeURIComponent(rawQuery);
+
+      if (!query.trim()) {
+        return { streams: [] };
+      }
+
+      console.log(`Stream search: query="${query}"`);
+
+      // Check cache first
+      const cacheKey = `search:${query.trim().toLowerCase()}`;
+      const cached = cacheGet<any[]>(cacheKey);
+      if (cached) {
+        console.log(`Cache hit: ${cached.length} streams for "${query}"`);
+        return { streams: cached };
+      }
+
+      const allResolvers = getAllResolvers();
+      const activeResolvers = await getActiveResolvers(allResolvers, config || {});
+
+      // Search all resolvers in parallel
+      const searchPromises = activeResolvers.map(async (resolver) => {
+        try {
+          const results = await resolver.search(query, config || {});
+          return { resolver, results };
+        } catch (e) {
+          console.error(`Resolver ${resolver.resolverName} search error:`, e);
+          return { resolver, results: [] as any[] };
+        }
+      });
+
+      const settled = await Promise.allSettled(searchPromises);
+      const streams: any[] = [];
+
+      for (const result of settled) {
+        if (result.status !== "fulfilled") continue;
+        const { resolver, results } = result.value;
+        if (!results || results.length === 0) continue;
+
+        // Limit per resolver
+        const top = results.slice(0, 20);
+
+        for (const r of top) {
+          // Extract quality from title
+          const t = r.title.toLowerCase();
+          let quality = "";
+          if (/2160p|4k|uhd|2160/.test(t)) quality = "4K";
+          else if (/1440p|2k/.test(t)) quality = "2K";
+          else if (/1080p|fullhd|1080/.test(t)) quality = "1080p";
+          else if (/720p|\bhd\b/.test(t)) quality = "720p";
+          else if (/480p/.test(t)) quality = "480p";
+
+          const qualityScore = quality === "4K" ? 4 : quality === "2K" ? 3 : quality === "1080p" ? 2 : quality === "720p" ? 1 : 0;
+
+          const sizeStr = r.size ? bytesToSize(r.size) : "";
+
+          streams.push({
+            url: `${getServerUrl()}/media/${encodeURIComponent(resolver.resolverName)}/${encodeURIComponent(r.resolverId)}?config=${encodeURIComponent(JSON.stringify(config || {}))}`,
+            name: r.title,
+            description: [resolver.resolverName, quality, sizeStr].filter(Boolean).join(" • "),
+            behaviorHints: {
+              videoSize: r.size || 0,
+            },
+            _qualityScore: qualityScore,
+          });
+        }
+      }
+
+      // Sort streams based on user config
+      const sortOrder = config?.sortOrder || "default";
+      if (sortOrder === "size") {
+        streams.sort((a: any, b: any) => (b.behaviorHints.videoSize || 0) - (a.behaviorHints.videoSize || 0));
+      } else if (sortOrder === "quality") {
+        streams.sort((a: any, b: any) => (b._qualityScore || 0) - (a._qualityScore || 0));
+      }
+
+      // Remove internal _qualityScore from output
+      for (const s of streams) {
+        delete s._qualityScore;
+      }
+
+      console.log(`Stream search: ${streams.length} streams for "${query}"`);
+
+      // Cache results for 5 minutes (key is lowercased for better hit rate)
+      cacheSet(cacheKey, streams);
+      return { streams };
+    }
+
+    // Handle czs: prefixed IDs (from old-style catalog results)
     // The ID may still be URL-encoded (%2F for / in the path)
     if (id.startsWith("czs:") || id.startsWith("czs%3A") || decodeURIComponent(id).startsWith("czs:")) {
       const decodedId = id.startsWith("czs%3A") ? decodeURIComponent(id) : id;

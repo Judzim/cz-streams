@@ -95,6 +95,25 @@ async function getFetchOptions(userName: string, password: string) {
   return newFetchOptions;
 }
 
+/**
+ * Extract video URL from the `sources = [...]` section only.
+ * Ignores `tracks = [...]` which contain subtitle files.
+ */
+function extractVideoUrlFromSources(script: string): string {
+  // Extract everything between `sources = [` and the closing `];`
+  const sourcesMatch = script.match(/sources\s*=\s*\[([\s\S]*?)\];/);
+  if (!sourcesMatch) return "";
+
+  const sourcesContent = sourcesMatch[1];
+  // Find all `file: "..."` entries within the sources array
+  const fileRegex = /file:\s*"([^"]+)"/g;
+  const matches = [...sourcesContent.matchAll(fileRegex)];
+  if (matches.length === 0) return "";
+
+  // Last entry in sources is usually highest quality
+  return matches[matches.length - 1][1];
+}
+
 async function getResultStreamUrls(
   resolverId: string,
   fetchOptions: FetchOptions = {},
@@ -122,25 +141,24 @@ async function getResultStreamUrls(
   let video = "";
   let subtitles: { id: string; url: string; lang: string }[] = [];
 
-  // Extract video sources from JS array without eval
-  // Format: var sources = [{file: "https://...", label: "1080p"}, ...]
-  const fileRegex = /file:\s*"([^"]+)"/g;
-  const fileMatches = [...script.matchAll(fileRegex)];
-  if (fileMatches.length > 0) {
-    // Last item is usually highest quality
-    video = fileMatches[fileMatches.length - 1][1];
-  } else {
-    // Fallback: try src: instead of file:
-    const srcRegex = /src:\s*"([^"]+)"/g;
-    const srcMatches = [...script.matchAll(srcRegex)];
-    if (srcMatches.length > 0) {
-      video = srcMatches[srcMatches.length - 1][1];
+  // Extract video source from `sources = [...]` only (not from `tracks = [...]`)
+  video = extractVideoUrlFromSources(script);
+
+  // Fallback: try `src:` instead of `file:` within sources
+  if (!video) {
+    const sourcesMatch = script.match(/sources\s*=\s*\[([\s\S]*?)\];/);
+    if (sourcesMatch) {
+      const srcRegex = /src:\s*"([^"]+)"/g;
+      const srcMatches = [...sourcesMatch[1].matchAll(srcRegex)];
+      if (srcMatches.length > 0) {
+        video = srcMatches[srcMatches.length - 1][1];
+      }
     }
   }
 
   // Extract subtitle tracks without eval
-  // Format: var tracks = [{kind: "captions", label: "...", src: "...", srclang: "cze"}, ...]
-  const trackPattern = /kind:\s*"captions"[^}]*?src:\s*"([^"]+)"[^}]*?srclang:\s*"([^"]+)"/g;
+  // Format: var tracks = [{kind: "captions", label: "...", file: "...", srclang: "cze"}, ...]
+  const trackPattern = /kind:\s*"captions"[^}]*?file:\s*"([^"]+)"[^}]*?srclang:\s*"([^"]+)"/g;
   let trackMatch;
   while ((trackMatch = trackPattern.exec(script)) !== null) {
     subtitles.push({
@@ -151,7 +169,7 @@ async function getResultStreamUrls(
   }
   // Also try extracting label for subtitle ID
   if (subtitles.length === 0) {
-    const altTrackPattern = /kind:\s*"captions"[^}]*?label:\s*"([^"]+)"[^}]*?src:\s*"([^"]+)"[^}]*?srclang:\s*"([^"]+)"/g;
+    const altTrackPattern = /kind:\s*"captions"[^}]*?label:\s*"([^"]+)"[^}]*?file:\s*"([^"]+)"[^}]*?srclang:\s*"([^"]+)"/g;
     let altMatch;
     while ((altMatch = altTrackPattern.exec(script)) !== null) {
       subtitles.push({

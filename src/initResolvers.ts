@@ -10,19 +10,19 @@ import { getResolver as getWebshareResolver } from "./service/webshare.ts";
 export function initResolvers() {
   /** @type {Resolver[]} */
   const resolvers = [
-    // Fastshare: disabled by author — stream fails on seek
+    // Fastshare: free streaming removed by the site, only premium download works
     // getFastshareResolver(),
 
-    // Hellspy: working, no login required, uses JSON API
+    // Hellspy: rewritten to use api.hellspy.to (public JSON API)
     getHellspyResolver(),
 
     // Prehraj.to: main resolver, supports premium login
     getPrehrajtoResolver(),
 
-    // SledujteTo: disabled by author — requires 30s keepalive endpoint
-    // getSledujtetoResolver(),
+    // SledujteTo: rewritten to use new Vue API (search + add-file-link)
+    getSledujtetoResolver(),
 
-    // Sosac: working, no login required, supports encrypted streams
+    // Sosac: rewritten to use tv.sosac.to JSON API + streamuj.tv
     getSosacResolver(),
 
     // WebShare: requires login (configurable via Stremio UI)

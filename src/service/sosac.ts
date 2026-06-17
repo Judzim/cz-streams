@@ -1,151 +1,116 @@
-import CryptoJS from "crypto-js";
-import { parseHTML } from "linkedom";
-
-import type { SearchResult, StreamDetails } from "../getTopItems.ts";
-import type { Resolver } from "../getTopItems.ts";
-import { sizeToBytes, timeToSeconds } from "../utils/convert.ts";
-import commonHeaders, { type FetchOptions } from "../utils/headers.ts";
+import type { Resolver, SearchResult, StreamDetails } from "../getTopItems.ts";
+import { sizeToBytes } from "../utils/convert.ts";
+import commonHeaders from "../utils/headers.ts";
 
 const headers = {
   ...commonHeaders,
   Referer: "https://sosac.tv/",
 };
 
-async function getSearchResults(title: string, fetchOptions: FetchOptions = {}) {
-  const q = encodeURIComponent(title);
-  const url = `https://sosac.tv/search/?q=${q}`;
-  const res = await fetch(url, {
-    headers: {
-      ...headers,
-      ...(fetchOptions.headers ?? {}),
-    },
+/** Item from tv.sosac.to/jsonsearchapi.php */
+interface SosacSearchItem {
+  /** Title in multiple languages, e.g. {"cs": "Matrix", "en": "The Matrix", "sk": "..."} */
+  n: Record<string, string>;
+  /** Video key used for streaming */
+  l: string;
+  /** Year */
+  y?: string;
+  /** Quality */
+  q?: string;
+  /** Image ID */
+  i?: string;
+}
+
+async function getSearchResults(
+  title: string,
+): Promise<SearchResult[]> {
+  // Search via the JSON API on the old domain
+  const url = `http://tv.sosac.to/jsonsearchapi.php?q=${encodeURIComponent(title)}`;
+  const resp = await fetch(url, {
+    headers,
     method: "GET",
-    referrerPolicy: "strict-origin-when-cross-origin",
   });
+  if (!resp.ok) return [];
 
-  const html = await res.text();
-  const { document } = parseHTML(html);
+  const items = (await resp.json()) as SosacSearchItem[];
+  if (!Array.isArray(items)) return [];
 
-  const items = document.querySelectorAll(".video, .item, article, .search-result");
-  const results: SearchResult[] = [...items]
-    .map((el) => {
-      const a = el.querySelector("a[href]") || el.querySelector("a.video-link");
-      const path = a ? a.getAttribute("href") : null;
-      const titleAttr = (a ? a.getAttribute("title") || a.textContent : null) || el.querySelector("h3")?.textContent || "";
+  const results: SearchResult[] = [];
 
-      const durationStr = el.querySelector(".duration, .time")?.textContent?.trim() || "0:00";
-      const sizeEl = el.querySelector(".size, .video-size");
-      const sizeStr = (sizeEl && sizeEl.textContent && sizeEl.textContent.trim().toUpperCase()) || "";
+  for (const item of items) {
+    if (!item.l) continue;
+    // Use Czech title if available, fall back to English
+    const displayName = item.n?.cs || item.n?.sk || item.n?.en || Object.values(item.n || {})[0] || "Unknown";
+    const quality = item.q || "";
 
-      return {
-        resolverId: path || "",
-        title: titleAttr.trim(),
-        detailPageUrl: path ? `https://sosac.tv${path}` : "",
-        duration: timeToSeconds(durationStr),
-        size: sizeStr ? sizeToBytes(sizeStr) : 0,
-      } as SearchResult;
-    })
-    .filter((r) => r.resolverId);
+    results.push({
+      resolverId: item.l, // video key
+      title: `${displayName}${quality ? ` [${quality}]` : ""}${item.y ? ` (${item.y})` : ""}`,
+      detailPageUrl: `https://sosac.tv/watch/${item.l}`,
+      duration: 0, // not available from search API
+      format: quality,
+      size: 0, // not available from search API
+    });
+  }
 
   return results;
 }
 
-async function getResultStreamUrls(resolverId: string, fetchOptions: FetchOptions = {}): Promise<StreamDetails> {
-  const detailPageUrl = resolverId.startsWith("http") ? resolverId : `https://sosac.tv${resolverId}`;
-  const pageResponse = await fetch(detailPageUrl, {
-    headers: {
-      ...headers,
-      ...(fetchOptions.headers ?? {}),
-    },
-    method: "GET",
-    referrerPolicy: "strict-origin-when-cross-origin",
-  });
+async function getStreamUrlFromStreamuj(videoKey: string): Promise<string> {
+  // Try HD first, fall back to original
+  for (const quality of ["hd", "original"]) {
+    try {
+      const apiUrl = `https://www.streamuj.tv/json_api.php?action=video-link&URL=https://www.streamuj.tv/video/${videoKey}?streamuj=${quality}`;
+      const resp = await fetch(apiUrl, {
+        headers: {
+          ...headers,
+          Referer: "https://www.streamuj.tv/",
+        },
+        method: "GET",
+      });
+      if (!resp.ok) continue;
 
-  const pageHtml = await pageResponse.text();
-  const { document } = parseHTML(pageHtml);
+      const data = (await resp.json()) as { result: number; URL?: string };
+      if (data.result !== 1 || !data.URL) continue;
 
-  let video = "";
-  const subtitles: { id: string; url: string; lang: string }[] = [];
+      // Follow the authorized URL to get the actual MP4
+      const authResp = await fetch(data.URL, {
+        headers: {
+          ...headers,
+          Referer: "https://www.streamuj.tv/",
+        },
+        method: "GET",
+        redirect: "manual", // don't auto-follow, we want the body
+      });
 
-  // 1) Try <video> or <source> tags directly
-  const videoEl = document.querySelector("video[src]") as Element | null;
-  const sourceEl = document.querySelector("video source[src]") as Element | null;
-  if (videoEl) {
-    const src = videoEl.getAttribute("src") || videoEl.getAttribute("data-src");
-    if (src) video = src;
-  } else if (sourceEl) {
-    const src = sourceEl.getAttribute("src") || sourceEl.getAttribute("data-src");
-    if (src) video = src;
-  }
-
-  // 2) Look into scripts for sources/file/src patterns
-  if (!video) {
-    const scriptEls = document.querySelectorAll("script");
-    const scripts = [...scriptEls].map((s) => s.textContent).filter(Boolean) as string[];
-
-    for (const script of scripts) {
-      try {
-        // Try file: "https://..." pattern
-        const fileMatch = /file\s*:\s*"((?:https?:)?\/\/[^"]+)"/s.exec(script);
-        if (fileMatch && fileMatch[1]) {
-          video = fileMatch[1];
-          break;
-        }
-        // Try src: "https://..." pattern
-        const srcMatch = /src\s*:\s*"((?:https?:)?\/\/[^"]+)"/s.exec(script);
-        if (srcMatch && srcMatch[1]) {
-          video = srcMatch[1];
-          break;
-        }
-        // Try escaped patterns (e.g. file: "https:\\/\\/...")
-        const escFileMatch = /file\s*:\s*"((?:https?:)?\\\/\\\/[^"]+)"/s.exec(script);
-        if (escFileMatch) {
-          video = escFileMatch[1].replace(/\\/g, "");
-          break;
-        }
-        const escSrcMatch = /src\s*:\s*"((?:https?:)?\\\/\\\/[^"]+)"/s.exec(script);
-        if (escSrcMatch) {
-          video = escSrcMatch[1].replace(/\\/g, "");
-          break;
-        }
-      } catch {
-        // ignore script parse errors
+      // If it redirects, follow it
+      if (authResp.status >= 300 && authResp.status < 400) {
+        const location = authResp.headers.get("location");
+        if (location) return location;
       }
+
+      // Otherwise the body contains the video URL as plain text
+      const body = await authResp.text();
+      if (body && body.startsWith("http")) {
+        return body.trim();
+      }
+    } catch {
+      // try next quality
     }
   }
 
-  // 3) Try encrypted payloads (Sosac uses AES obfuscation)
-  if (!video) {
-    const encMatch = pageHtml.match(/data-enc=["']([A-Za-z0-9+/=\n\r]+)["']/);
-    if (encMatch) {
-      try {
-        const keyMatch = pageHtml.match(/data-key=["']([^"']+)["']/) || pageHtml.match(/var\s+key\s*=\s*'([^']+)'/);
-        if (keyMatch) {
-          const ct = encMatch[1];
-          const key = keyMatch[1];
-          const bytes = CryptoJS.AES.decrypt(ct, key);
-          const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-          const urlMatch = decrypted && decrypted.match(/https?:\/\/[^\s'"\\]+/);
-          if (urlMatch) video = urlMatch[0];
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }
+  return "";
+}
 
-  // Subtitles from <track> elements
-  const trackEls = document.querySelectorAll("track[src]");
-  for (const t of trackEls) {
-    const url = t.getAttribute("src") || "";
-    subtitles.push({
-      id: t.getAttribute("label") || t.getAttribute("srclang") || "sub",
-      url,
-      lang: t.getAttribute("srclang") || "",
-    });
-  }
+async function getResultStreamUrls(
+  resolverId: string,
+): Promise<StreamDetails> {
+  // resolverId is the video key
+  const videoKey = resolverId;
+  if (!videoKey) return { video: "" };
 
-  return { video, subtitles };
+  const video = await getStreamUrlFromStreamuj(videoKey);
+  return { video, subtitles: [] };
 }
 
 export function getResolver(): Resolver {
@@ -158,20 +123,20 @@ export function getResolver(): Resolver {
 
     validateConfig: async () => true,
 
-    search: async (title, addonConfig) => {
+    search: async (title) => {
       try {
         return await getSearchResults(title);
       } catch (e) {
-        console.log("sosac search error", e);
+        console.error("Sosac search error:", e);
         return [];
       }
     },
 
-    resolve: async (resolverId, addonConfig) => {
+    resolve: async (resolverId) => {
       try {
         return await getResultStreamUrls(resolverId);
       } catch (e) {
-        console.log("sosac resolve error", e);
+        console.error("Sosac resolve error:", e);
         return { video: "" };
       }
     },

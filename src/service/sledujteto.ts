@@ -6,186 +6,191 @@ import commonHeaders, { type FetchOptions } from "../utils/headers.ts";
 const headers = {
   ...commonHeaders,
   accept: "application/json",
-  host: "www.sledujteto.cz",
   referer: "https://www.sledujteto.cz/",
   "Referrer-Policy": "strict-origin-when-cross-origin",
 };
 
-async function login(userName: string, password: string) {
-  if (!userName) {
-    return loginAnonymous();
-  }
+/**
+ * Sledujte.to was rewritten to use a new Vue-based frontend.
+ *
+ * Search: GET /api/web/videos?search={query} → JSON with file list
+ * Stream: POST {mirror}/services/add-file-link → {hash, link_id}
+ *         Video URL: {mirror}/player/index/sledujteto/{hash} (with Range header)
+ * Keepalive: POST /services/add-file-play every 30s (for premium enforcement)
+ *            But the video URL itself works without keepalive!
+ *
+ * The mirror is typically data10.sledujteto.cz or similar CDN subdomain.
+ * The hash is deterministic per file ID.
+ */
 
-  const r1 = await fetch("https://www.sledujteto.cz/account/login/", {
-    headers: {
-      ...headers,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    redirect: "manual",
-    body: `email=${encodeURIComponent(userName)}&password=${encodeURIComponent(
-      password,
-    )}&remember=1&login=P%C5%99ihl%C3%A1sit&form_id=Form_Login&model_id=0`,
-    method: "POST",
-  });
-  const cookies = extractCookies(r1);
-
-  return {
-    headers: headerCookies(cookies),
-  };
+interface ApiFile {
+  id: number;
+  name: string;
+  filename: string;
+  filesize: string;
+  full_url: string;
+  movie_duration: string;
+  movie_resolution: string;
+  movie_codec?: string;
+  duration: string;
+  is_premium: boolean;
+  is_playback_enabled?: boolean;
 }
 
-async function loginAnonymous() {
-  const result = await fetch("https://www.sledujteto.cz/", {
-    headers,
-    method: "GET",
-  });
+const MIRROR_CACHE = new Map<number, string>();
 
-  const cookies = extractCookies(result);
+/**
+ * Discover the CDN mirror for a file by fetching its detail page
+ * and extracting the `init()` call which contains the mirror URL.
+ */
+async function discoverMirror(fileId: number): Promise<string> {
+  if (MIRROR_CACHE.has(fileId)) return MIRROR_CACHE.get(fileId)!;
 
-  return {
-    headers: headerCookies(cookies),
-  };
-}
-
-const fetchOptionsCache = new Map();
-
-async function getFetchOptions(userName: string, password: string) {
-  const cacheKey = `${userName}:${password}`;
-  const fetchOptions = fetchOptionsCache.get(cacheKey);
-  if (fetchOptions) {
-    return fetchOptions;
-  }
-
-  const newFetchOptions = await login(userName, password);
-  fetchOptionsCache.set(cacheKey, newFetchOptions);
-  return newFetchOptions;
-}
-
-async function getResultStreamUrls(
-  resolverId: string,
-  fetchOptions: FetchOptions = {},
-): Promise<StreamDetails> {
-  const pageResponse = await fetch(
-    "https://www.sledujteto.cz/services/add-file-link",
-    {
-      headers: {
-        ...headers,
-        ...(fetchOptions.headers ?? {}),
-        "content-type": "application/json;charset=UTF-8",
-      },
-      body: JSON.stringify({
-        params: {
-          id: resolverId,
-        },
-      }),
-      method: "POST",
-    },
-  );
-  const pageData = (await pageResponse.json()) as { hash: string };
-  return {
-    video: `https://www.sledujteto.cz/player/index/sledujteto/${pageData.hash}`,
-    subtitles: [],
-    behaviorHints: {
-      notWebReady: true,
-      proxyHeaders: {
-        request: {
+  try {
+    const resp = await fetch(
+      `https://www.sledujteto.cz/file/${fileId}/`,
+      {
+        headers: {
           ...headers,
-          ...(fetchOptions.headers ?? {}),
+          accept: "text/html",
         },
+        method: "GET",
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any,
-  };
+    );
+    const html = await resp.text();
+
+    // Extract mirror from ng-init: init(file_id, file_url, dl_url, mirror)
+    const initMatch = html.match(
+      /init\(\d+,\s*'([^']+)',\s*'[^']+',\s*'([^']+)'\)/,
+    );
+    if (initMatch) {
+      const mirror = initMatch[2];
+      MIRROR_CACHE.set(fileId, mirror);
+      return mirror;
+    }
+  } catch {
+    // fallback
+  }
+
+  const DEFAULT = "https://data10.sledujteto.cz";
+  MIRROR_CACHE.set(fileId, DEFAULT);
+  return DEFAULT;
 }
 
 async function getSearchResults(
   title: string,
-  fetchOptions: FetchOptions = {},
 ): Promise<SearchResult[]> {
-  const pageResponse = await fetch(
-    `https://www.sledujteto.cz/services/get-files?query=${encodeURIComponent(title)}&limit=32&page=1&sort=relevance&collection=?vp-page=0`,
+  const resp = await fetch(
+    `https://www.sledujteto.cz/api/web/videos?search=${encodeURIComponent(title)}`,
     {
-      ...fetchOptions,
-      headers: {
-        ...headers,
-        ...(fetchOptions.headers ?? {}),
-      },
-      referrerPolicy: "strict-origin-when-cross-origin",
-      body: null,
+      headers,
       method: "GET",
     },
   );
+  if (!resp.ok) return [];
 
-  const pageData = (await pageResponse.json()) as {
-    error?: string;
-    files: Array<{
-      id: string;
-      filename: string;
-      full_url: string;
-      movie_duration: string;
-      movie_resolution: string;
-      filesize: string;
-    }>;
+  const data = (await resp.json()) as {
+    status: string;
+    data: { files: ApiFile[] };
   };
-  if (pageData.error) {
-    return [];
+  if (data.status !== "success" || !data.data?.files) return [];
+
+  return data.data.files
+    .filter((f) => !f.is_premium) // skip premium-only files
+    .map((file) => ({
+      resolverId: String(file.id),
+      title: file.name || file.filename || "Unknown",
+      detailPageUrl: file.full_url || "",
+      duration: timeToSeconds(file.movie_duration || file.duration || "0:00"),
+      format: file.movie_resolution || "",
+      size: sizeToBytes(file.filesize || "0"),
+    }));
+}
+
+async function getResultStreamUrls(
+  resolverId: string,
+): Promise<StreamDetails> {
+  const fileId = parseInt(resolverId, 10);
+  if (isNaN(fileId)) return { video: "" };
+
+  const mirror = await discoverMirror(fileId);
+
+  // Get streaming hash
+  const linkResp = await fetch(`${mirror}/services/add-file-link`, {
+    headers: {
+      ...headers,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ params: { id: fileId } }),
+    method: "POST",
+  });
+  if (!linkResp.ok) return { video: "" };
+
+  const linkData = (await linkResp.json()) as {
+    hash?: string;
+    video_url?: string;
+    link_id?: number;
+    subtitles?: Array<{ file: string; label: string; srclang: string }>;
+  };
+  if (!linkData.hash) return { video: "" };
+
+  const video = linkData.video_url || `${mirror}/player/index/sledujteto/${linkData.hash}`;
+
+  // Extract subtitles
+  const subtitles: { id: string; url: string; lang: string }[] = [];
+  if (linkData.subtitles && Array.isArray(linkData.subtitles)) {
+    for (const sub of linkData.subtitles) {
+      if (sub.file) {
+        subtitles.push({
+          id: sub.label || sub.srclang || "sub",
+          url: sub.file,
+          lang: sub.srclang || "",
+        });
+      }
+    }
   }
 
-  const results = pageData.files.map((file) => {
-    return {
-      resolverId: file.id,
-      title: file.filename,
-      detailPageUrl: file.full_url,
-      duration: timeToSeconds(file.movie_duration),
-      format: file.movie_resolution,
-      size: sizeToBytes(file.filesize),
-    };
-  });
-  return results;
+  return {
+    video,
+    subtitles,
+    behaviorHints: {
+      // The video works with Range requests but the keepalive (add-file-play)
+      // runs every 30s to enforce free play time limits
+      notWebReady: true,
+    } as any,
+  };
 }
 
 export function getResolver(): Resolver {
   return {
     resolverName: "SledujteTo",
 
-    init: () => {
-      /**
-       * This resolver can't be easily fixed
-       * It requires to call services/add-file-link endpoint every 30 seconds
-       * with file id and current playback time
-       */
-      return false;
-    },
+    init: () => true,
 
     getConfigFields: () => [],
 
     validateConfig: async () => {
-      /*
-      if (!addonConfig.sledujtetoUsername || !addonConfig.sledujtetoPassword) {
-        return false;
+      // Works without login for free content
+      // Premium files are filtered out in search
+      return true;
+    },
+
+    search: async (title) => {
+      try {
+        return await getSearchResults(title);
+      } catch (e) {
+        console.error("SledujteTo search error:", e);
+        return [];
       }
-      const fetchOptions = await getFetchOptions(
-        addonConfig.sledujtetoUsername ?? "",
-        addonConfig.sledujtetoPassword,
-      );
-      */
-      return false; //"headers" in fetchOptions;
     },
 
-    search: async (title, addonConfig) => {
-      const fetchOptions = await getFetchOptions(
-        addonConfig.sledujtetoUsername ?? "",
-        addonConfig.sledujtetoPassword,
-      );
-      return getSearchResults(title, fetchOptions);
-    },
-
-    resolve: async (resolverId, addonConfig) => {
-      const fetchOptions = await getFetchOptions(
-        addonConfig.sledujtetoUsername ?? "",
-        addonConfig.sledujtetoPassword,
-      );
-      return getResultStreamUrls(resolverId, fetchOptions);
+    resolve: async (resolverId) => {
+      try {
+        return await getResultStreamUrls(resolverId);
+      } catch (e) {
+        console.error("SledujteTo resolve error:", e);
+        return { video: "" };
+      }
     },
   };
 }
