@@ -27,9 +27,9 @@ export default async function handler(req: Request, res: Response) {
     const url = new URL(req.protocol + "://" + req.hostname + req.url);
     const configJSON = url.searchParams.get("config");
     const config = configJSON ? JSON.parse(configJSON) : {};
-    const parts = req.url.split("/");
-    const resolverName = decodeURIComponent(parts[2]);
-    const mediaId = decodeURIComponent(parts[3]);
+    const pathParts = url.pathname.split("/");
+    const resolverName = decodeURIComponent(pathParts[2]);
+    const mediaId = decodeURIComponent(pathParts[3]);
 
     const mediaUrl = await getMediaUrl(resolverName, mediaId, config);
 
