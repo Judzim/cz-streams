@@ -1,7 +1,7 @@
 {
   "name": "cz-streams",
   "version": "1.0.0",
-  "description": "Stremio addon for CZ/SK streaming sites (Prehraj.to, SOSAC, HellSpy, WebShare, FastShare, Sledujte.to)",
+  "description": "Stremio addon for CZ/SK streaming sites (Prehraj.to, HellSpy, SOSAC, WebShare, Sledujte.to)",
   "type": "module",
   "engines": {
     "node": ">=18"

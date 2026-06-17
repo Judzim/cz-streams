@@ -53,11 +53,12 @@ Addon podporuje aj textové vyhľadávanie priamo zo Stremio katalógu.
 - TypeScript, Node.js 18+, Express 5
 - `stremio-addon-sdk` pre kompatibilitu
 - `linkedom` pre HTML parsing (rýchlejší ako JSDOM)
-- `crypto-js` pre AES dešifrovanie (SOSAC, WebShare)
+- `crypto-js` pre AES dešifrovanie (WebShare)
 - `moviedb-promise` pre TMDB API
 - In-memory cache s TTL pre vyhľadávanie a metadata
 - Každý zdroj je samostatný resolver s jednotným rozhraním (search → score → resolve)
-- Scraping na strane servera, Stremio dostáva priame video linky (cez 301 redirect)
+- Scraping HTML (PrehrajTo, WebShare) + JSON API (HellSpy, SOSAC, SledujteTo)
+- Stremio dostáva priame video linky (cez 301 redirect)
 
 ## Deployment
 
