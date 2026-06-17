@@ -56,9 +56,10 @@ async function getSearchResults(
   return results;
 }
 
-async function getStreamUrlFromStreamuj(videoKey: string): Promise<string> {
-  // Try HD first, fall back to original
-  for (const quality of ["hd", "original"]) {
+async function getStreamUrlFromStreamuj(videoKey: string, preferredQuality: string = "original"): Promise<string> {
+  // Determine quality order based on preference
+  const qualities = preferredQuality === "hd" ? ["hd", "original"] : ["original", "hd"];
+  for (const quality of qualities) {
     try {
       const apiUrl = `https://www.streamuj.tv/json_api.php?action=video-link&URL=https://www.streamuj.tv/video/${videoKey}?streamuj=${quality}`;
       const resp = await fetch(apiUrl, {
@@ -119,12 +120,13 @@ async function getStreamUrlFromStreamuj(videoKey: string): Promise<string> {
 
 async function getResultStreamUrls(
   resolverId: string,
+  quality: string = "original",
 ): Promise<StreamDetails> {
   // resolverId is the video key
   const videoKey = resolverId;
   if (!videoKey) return { video: "" };
 
-  const video = await getStreamUrlFromStreamuj(videoKey);
+  const video = await getStreamUrlFromStreamuj(videoKey, quality);
   return { video, subtitles: [] };
 }
 
@@ -157,7 +159,18 @@ export function getResolver(): Resolver {
 
     init: () => true,
 
-    getConfigFields: () => [],
+    getConfigFields: () => [
+      {
+        key: "sosacQuality",
+        type: "select",
+        title: "Kvalita SOSAC",
+        options: [
+          { key: "original", value: "Původní (SD) — plné přehrávání + seek" },
+          { key: "hd", value: "HD — pouze prvních ~25MB (omezený seek)" },
+        ],
+        default: "original",
+      },
+    ],
 
     validateConfig: async () => true,
 
@@ -170,9 +183,10 @@ export function getResolver(): Resolver {
       }
     },
 
-    resolve: async (resolverId) => {
+    resolve: async (resolverId, config) => {
       try {
-        const detail = await getResultStreamUrls(resolverId);
+        const quality = config?.sosacQuality || "original";
+        const detail = await getResultStreamUrls(resolverId, quality);
         // Try to get file size from CDN for display in stream list
         if (detail.video && !detail.size) {
           const size = await getStreamSize(detail.video);
