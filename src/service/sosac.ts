@@ -92,7 +92,22 @@ async function getStreamUrlFromStreamuj(videoKey: string): Promise<string> {
       // Otherwise the body contains the video URL as plain text
       const body = await authResp.text();
       if (body && body.startsWith("http")) {
-        return body.trim();
+        const cdnUrl = body.trim();
+        // Verify the CDN URL works before returning (streamuj.tv blocks
+        // some videos on "hd" quality but "original" may work)
+        try {
+          const verifyResp = await fetch(cdnUrl, {
+            method: "HEAD",
+            headers: { "User-Agent": "Mozilla/5.0" },
+            signal: AbortSignal.timeout(5000),
+          });
+          const ct = verifyResp.headers.get("content-type") || "";
+          if (verifyResp.ok && ct.includes("video")) {
+            return cdnUrl;
+          }
+        } catch {
+          // verification failed, try next quality
+        }
       }
     } catch {
       // try next quality
