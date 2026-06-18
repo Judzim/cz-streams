@@ -1,5 +1,7 @@
 # CZ Streams
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 Stremio addon pre streamovanie filmov a seriálov z českých a slovenských zdrojov.
 
 ## Zdroje
@@ -83,3 +85,7 @@ node --experimental-strip-types server.ts
 | `/media/<resolver>/<id>` | Proxy videa z CDN cez server |
 | `/test/?q=<query>` | Debug endpoint pre testovanie resolverov |
 | `/clean/` | Manuálne vyčistenie cache |
+
+## 📄 Licencia
+
+Tento projekt je licencovaný pod **GNU Affero General Public License v3.0** — pozri [LICENSE](LICENSE) pre viac informácií.

@@ -6,6 +6,9 @@ process.on("unhandledRejection", (reason) => {
 });
 
 import { type Express, type Request, type Response } from "express";
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import SDK from "stremio-addon-sdk";
 
 import { addonInterface } from "./addon.ts";
@@ -13,6 +16,16 @@ import cleanupHandler from "./src/endpoints/cleanup.ts";
 import configureHandler from "./src/endpoints/configure.ts";
 import mediaHandler from "./src/endpoints/getMediaUrl.ts";
 import testHandler from "./src/endpoints/test.ts";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+let koFiLogoCache: Buffer | null = null;
+function getKoFiLogo(): Buffer {
+  if (!koFiLogoCache) {
+    koFiLogoCache = readFileSync(join(__dirname, "ko-fi-logo.jpg"));
+  }
+  return koFiLogoCache;
+}
 
 (
   SDK.serveHTTP(addonInterface, {
@@ -27,6 +40,13 @@ import testHandler from "./src/endpoints/test.ts";
     server.removeAllListeners("request");
     server.on("request", async (req: Request, res: Response) => {
       try {
+        // Ko-fi logo (static file)
+        if (req.url === "/ko-fi-logo.jpg") {
+          res.writeHead(200, { "Content-Type": "image/jpeg" });
+          res.end(getKoFiLogo());
+          return;
+        }
+
         if (req.url && req.url.startsWith("/configure")) {
           configureHandler(req, res);
           return;
