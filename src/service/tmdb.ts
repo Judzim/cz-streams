@@ -3,11 +3,20 @@ import { Cache } from "../utils/cache.ts";
 
 const tmdbCache = new Cache<any>(60 * 60 * 1000); // 1 hour TTL
 
+/**
+ * Strip season/episode suffix from an IMDb ID.
+ * "tt1234567:1:1" → "tt1234567", "tt1234567" → "tt1234567"
+ */
+function stripSeriesSuffix(id: string): string {
+  return id.split(":")[0];
+}
+
 export async function getTmdbDetails<L extends string>(
   id: string,
   languageCode: L,
 ) {
-  const cacheKey = `${id}:${languageCode}`;
+  const cleanId = stripSeriesSuffix(id);
+  const cacheKey = `${cleanId}:${languageCode}`;
   const cached = tmdbCache.get(cacheKey);
   if (cached) return cached;
 
@@ -16,7 +25,7 @@ export async function getTmdbDetails<L extends string>(
 
     const data = await tmdb.find({
       external_source: ExternalId.ImdbId,
-      id,
+      id: cleanId,
       language: languageCode,
     });
 

@@ -74,7 +74,7 @@ function getManifest() {
     types: ["movie", "series"],
     name: "CZ Streams",
     description: "CZ/SK stream aggregator — vyhľadáva a streamuje filmy a seriály z Prehraj.to, HellSpy a WebShare.",
-    idPrefixes: ["tt", "czs"],
+    idPrefixes: ["tt", "czs", "tmdb"],
     logo: "https://play-lh.googleusercontent.com/qDMsLq4DWg_OHEX6YZvM1FRKnSmUhzYH-rYbWi4QBosX9xTDpO8hRUC-oPtNt6hoFX0=w256-h256-rw",
     config: config as any,
     behaviorHints: {
