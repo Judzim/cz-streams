@@ -22,6 +22,11 @@ npm run start:install  # spustenie + vyžiada inštaláciu
 
 Addon beží na porte 52932 (alebo $PORT).
 
+### Verejná inštancia
+```
+https://czstreams.judzim.my.id/manifest.json
+```
+
 Do Stremia pridaj:
 ```
 http://localhost:52932/manifest.json
@@ -70,6 +75,9 @@ npm start
 ```bash
 npm run deploy
 ```
+
+### Cloudflare Tunnel (Raspberry Pi)
+Addon beží na Raspberry Pi cez Cloudflare Tunnel — dostupný na `czstreams.judzim.my.id`.
 
 ### Vlastný server
 Nastav `$PORT` a spusti:
