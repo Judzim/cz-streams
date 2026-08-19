@@ -385,6 +385,20 @@ builder.defineStreamHandler(async (props) => {
           releaseInfo: (tmdbMeta.release_date || tmdbMeta.first_air_date || "").split("-")[0] || "",
           year: (tmdbMeta.release_date || tmdbMeta.first_air_date || "").split("-")[0] || "",
           popularities: { moviedb: 0, stremio: 0, trakt: 0, stremio_lib: 0 },
+          ...(type === "series" && id.includes(":")
+            ? (() => {
+                // IMDb: tt1234567:1:1 → [tt, 1, 1] (season=[1], ep=[2])
+                // TMDB: tmdb:295879:1:1 → [tmdb, 295879, 1, 1] (season=[2], ep=[3])
+                const parts = id.split(":");
+                const hasPrefix = parts[0] !== "tt";
+                const season = parseInt(parts[hasPrefix ? 2 : 1]);
+                const number = parseInt(parts[hasPrefix ? 3 : 2]);
+                if (isNaN(season) || isNaN(number)) return {};
+                return {
+                  episode: { season, number } as { season: number; number: number },
+                };
+              })()
+            : {}),
         } as any;
         const allResolvers = getAllResolvers();
         const topItems = await getTopItems(fallbackMeta, allResolvers, config || {});

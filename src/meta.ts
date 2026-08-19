@@ -85,6 +85,13 @@ export async function getMeta(
     };
   }
 
+  // Cinemeta pozná len IMDb ID (tt...). Pre tmdb:/tvdb: prefixy
+  // by vracala HTML 404 stránku (nie JSON) → response.json() padá.
+  // Vrátime undefined a necháme stream handler spadnúť na TMDB fallback.
+  if (!/^tt\d+$/i.test(canonicalId)) {
+    return undefined;
+  }
+
   const response = await fetch(
     "https://v3-cinemeta.strem.io/meta/" + type + "/" + canonicalId + ".json",
   );
