@@ -64,7 +64,11 @@ function getKoFiLogo(): Buffer {
           return;
         }
 
-        if (req.url && req.url.startsWith("/configure")) {
+        // Konfiguračná stránka — musí chytiť aj /{config}/configure (Stremio
+        // otvára configurationUrl relatívne k base URL addonu, ktorý môže mať
+        // config prefix). Posledný segment cesty je "configure".
+        const pathSegments = (req.url ?? "").split("?")[0].split("/").filter(Boolean);
+        if (pathSegments.length > 0 && pathSegments[pathSegments.length - 1] === "configure") {
           configureHandler(req, res);
           return;
         }
