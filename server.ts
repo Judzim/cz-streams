@@ -51,6 +51,13 @@ function getKoFiLogo(): Buffer {
         // behaviorHints.configurable (config button by zmizol zo Stremia).
         // My ho vraciame VŽDY, aby config button ostal viditeľný (ako TorrentSK).
         if (req.url && req.url.endsWith("/manifest.json")) {
+          // Prehliadač (Accept: text/html) — pekná config stránka namiesto raw JSON
+          const accept = req.headers.accept || "";
+          if (accept.includes("text/html")) {
+            res.writeHead(302, { Location: "/configure" });
+            res.end();
+            return;
+          }
           const manifest = JSON.parse(JSON.stringify(addonInterface.manifest));
           manifest.behaviorHints = {
             ...manifest.behaviorHints,
