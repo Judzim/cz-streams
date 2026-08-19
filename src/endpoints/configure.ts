@@ -75,12 +75,16 @@ function renderField(field: ConfigField): string {
   return `<div class="field">${label}<input type="text" name="${field.key}" id="${field.key}" placeholder="${field.default || field.title}" spellcheck="false"></div>`;
 }
 
-const HTML = (fieldsHtml: string) => `<!DOCTYPE html>
+const HTML = (fieldsHtml: string, initialConfigJson: string) => `<!DOCTYPE html>
 <html lang="cs">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CZ Streams — Nastavení</title>
+<script>
+// Aktuálny config z URL path (/{config}/configure) — pre-fill formulára
+window.INITIAL_CONFIG = ${initialConfigJson};
+</script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0d0a; color: #e0e0e0; display: flex; justify-content: center; padding: 30px 15px; }
@@ -260,15 +264,36 @@ function copyUrl() {
   url.blur();
 }
 
-// Pre-fill from URL params if present
+// Pre-fill from URL path config segment (/{config}/configure) or query params
 (function() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.size > 0) {
-    for (const [key, value] of params) {
+  var initial = {};
+  try {
+    // config prichádza v URL path: /{encodeURIComponent(JSON)}/configure
+    // (Stremio otvára configurationUrl relatívne k base URL addonu)
+    if (window.INITIAL_CONFIG && Object.keys(window.INITIAL_CONFIG).length > 0) {
+      initial = window.INITIAL_CONFIG;
+    }
+  } catch(e) {}
+
+  var hadInitial = Object.keys(initial).length > 0;
+
+  // Fallback: query params (?key=value)
+  if (!hadInitial) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.size > 0) {
+      for (const [key, value] of params) {
+        initial[key] = value;
+      }
+      hadInitial = Object.keys(initial).length > 0;
+    }
+  }
+
+  if (hadInitial) {
+    for (const [key, value] of Object.entries(initial)) {
       const input = document.querySelector('[name="'+key+'"]');
       if (input) {
         if (input.type === 'checkbox') {
-          input.checked = value === 'true';
+          input.checked = value === 'true' || value === true;
         } else {
           input.value = value;
         }
@@ -284,10 +309,32 @@ function copyUrl() {
 </body>
 </html>`;
 
-export default function handler(_req: Request, res: Response) {
+export default function handler(req: Request, res: Response) {
   const fieldsHtml = renderFields();
+
+  // Config z URL path: /{config}/configure — Stremio otvára configurationUrl
+  // relatívne k base URL addonu (ktorý môže mať config prefix).
+  let initialConfig: Record<string, string> = {};
+  try {
+    const pathname = (req.url ?? "").split("?")[0];
+    const segments = pathname.split("/").filter(Boolean);
+    // posledný segment je "configure", predposledný je config JSON (ak existuje)
+    if (segments.length >= 2) {
+      const configSegment = decodeURIComponent(segments[segments.length - 2]);
+      const parsed = JSON.parse(configSegment);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        initialConfig = parsed;
+      }
+    }
+  } catch (e) {
+    // neplatný config v URL — necháme prázdny formulár
+  }
+
+  // JSON.stringify + escape </script> proti XSS cez config hodnoty v URL
+  const initialConfigJson = JSON.stringify(initialConfig).replace(/</g, "\\u003c");
+
   // Wrap fields in a form
-  const fullHtml = HTML(`<form method="GET" id="configForm" style="padding:0;">${fieldsHtml}</form>`);
+  const fullHtml = HTML(`<form method="GET" id="configForm" style="padding:0;">${fieldsHtml}</form>`, initialConfigJson);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(fullHtml);
 }
