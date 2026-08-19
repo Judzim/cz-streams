@@ -12,18 +12,26 @@ export function timeToSeconds(time: string) {
 }
 
 /**
- *
- * @param {string} sizeStr
+ * @param {string} sizeStr — e.g. "4.82 GB", "1,5 GB", "850MB", "2.1 GB"
  */
 export function sizeToBytes(sizeStr: string) {
-  const sizeNum = parseFloat(sizeStr.replace(".", ","));
-  const sizeMul = sizeStr.includes("KB")
-    ? 1024
-    : sizeStr.includes("MB")
-      ? 1048576
-      : sizeStr.includes("GB")
-        ? 1073741824
-        : 1;
+  if (!sizeStr) return 0;
+
+  // Normalize: strip whitespace, treat comma as decimal separator (cz/sk sites)
+  const normalized = sizeStr.replace(/\s+/g, "").replace(",", ".");
+  const match = normalized.match(/([\d.]+)([KMGT]?B)/i);
+  if (!match) return 0;
+
+  const sizeNum = parseFloat(match[1]);
+  if (isNaN(sizeNum)) return 0;
+
+  const unit = match[2].toUpperCase();
+  const sizeMul =
+    unit === "KB" ? 1024
+    : unit === "MB" ? 1048576
+    : unit === "GB" ? 1073741824
+    : unit === "TB" ? 1099511627776
+    : 1;
 
   return sizeNum * sizeMul;
 }

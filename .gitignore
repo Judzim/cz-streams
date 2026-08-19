@@ -1,4 +1,5 @@
 node_modules
 static/logs-*
+stdout.log
 storage/*
 !storage/.gitkeep

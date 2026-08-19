@@ -93,6 +93,9 @@ export default async function handler(req: Request, res: Response) {
       "Access-Control-Expose-Headers",
       "Content-Length, Content-Range, Accept-Ranges",
     );
+    // NEPOSIELAT Referer na CDN — stream URL obsahuje ?config= s heslom usera,
+    // CDN by videlo prihlasovacie udaje v Referer hlavicke pri 301 redirecte.
+    res.setHeader("Referrer-Policy", "no-referrer");
 
     // 301 redirect to CDN URL — video streamuje priamo z CDN, nie cez server.
     // CDN (premiumcdn.net, onecdn1.net, webshare.cz) podporujú CORS aj Range,

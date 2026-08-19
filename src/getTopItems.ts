@@ -1,5 +1,6 @@
 import type { Meta } from "./meta.ts";
 import { computeScore } from "./score.ts";
+import { applySortOrder } from "./sort.ts";
 import type { ConfigField, UserConfigData } from "./userConfig/userConfig.ts";
 import { cartesian } from "./utils/cartesian.ts";
 import { deduplicateByProp } from "./utils/deduplicateByProp.ts";
@@ -13,6 +14,8 @@ export type SearchResult = {
   duration: number;
   format?: string;
   size: number;
+  /** Real streamable resolution (px height, e.g. 1080) — set by resolver.enrich when available */
+  resolution?: number;
 };
 
 export type ScoredSearchResult = SearchResult & {
@@ -27,6 +30,8 @@ export type StreamDetails = Partial<SearchResult> & {
     countryWhitelist?: string[] | undefined;
     notWebReady?: boolean | undefined;
     group?: string | undefined;
+    videoSize?: number | undefined;
+    filename?: string | undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     headers?: any;
   };
@@ -40,6 +45,8 @@ export type Resolver = {
   getConfigFields: () => ConfigField[];
   validateConfig: (config: UserConfigData) => Promise<boolean>;
   search: (title: string, config: UserConfigData) => Promise<SearchResult[]>;
+  /** Optional: enrich search results with extra metadata (e.g. real resolution) before sorting */
+  enrich?: (results: SearchResult[], config: UserConfigData) => Promise<SearchResult[]>;
   resolve: (
     resolverId: string,
     config: UserConfigData,
@@ -72,6 +79,11 @@ export async function getTopItems(
         scoredSearchResults.length > 30
           ? scoredSearchResults.slice(0, 30)
           : scoredSearchResults;
+
+      // Optional per-resolver enrichment (e.g. HellSpy real resolution) before merge/sort
+      if (resolver.enrich) {
+        await resolver.enrich(topItems, config);
+      }
       return topItems;
     },
   );
@@ -106,7 +118,8 @@ export async function getTopItems(
   );
   results.sort(compareScores);
 
-  return results;
+  // Apply user's sortOrder config (default/size/sizeAsc/quality) on top of relevance
+  return applySortOrder(results, config?.sortOrder);
 }
 
 /**

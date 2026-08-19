@@ -23,13 +23,13 @@ npm run start:install  # spustenie + vyžiada inštaláciu
 Addon beží na porte 52932 (alebo $PORT).
 
 ### Verejná inštancia
-```
+```text
 https://czstreams.judzim.my.id/manifest.json
 ```
 
 Do Stremia pridaj:
-```
-http://localhost:52932/manifest.json
+```text
+https://czstreams.judzim.my.id/manifest.json
 ```
 
 ### Konfigurácia cez Stremio
@@ -90,7 +90,7 @@ node --experimental-strip-types server.ts
 | Endpoint | Účel |
 |----------|------|
 | `/configure` | Konfiguračné UI v prehliadači |
-| `/media/<resolver>/<id>` | Proxy videa z CDN cez server |
+| `/media/<resolver>/<id>` | 301 redirect na CDN URL (video streamuje priamo z CDN, server len presmeruje) |
 | `/test/?q=<query>` | Debug endpoint pre testovanie resolverov |
 | `/clean/` | Manuálne vyčistenie cache |
 

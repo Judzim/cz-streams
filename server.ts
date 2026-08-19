@@ -72,7 +72,10 @@ function getKoFiLogo(): Buffer {
           l.call(server, req, res);
         }
       } catch (e) {
-        console.error(`Error on request ${req.url}`, e);
+        // Mask config v URL (obsahuje heslá userov — WebShare/PrehrajTo)
+        let url = req.url ?? "";
+        url = url.replace(/([?&]config=)[^&]+/, "$1***");
+        console.error(`Error on request ${url}`, e);
       }
     });
   })

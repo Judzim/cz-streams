@@ -48,6 +48,7 @@ function renderField(field: ConfigField): string {
 <select name="${field.key}" id="${field.key}">
   <option value="default" data-i18n="sort.default">Výchozí</option>
   <option value="size" data-i18n="sort.size">Podle velikosti (největší)</option>
+  <option value="sizeAsc" data-i18n="sort.sizeAsc">Podle velikosti (nejmenší)</option>
   <option value="quality" data-i18n="sort.quality">Podle kvality (nejlepší)</option>
 </select></div>`;
   }
@@ -132,6 +133,7 @@ const I18N = {
     "label.sort.order": "Řazení výsledků",
     "sort.default": "Výchozí",
     "sort.size": "Podle velikosti (největší)",
+    "sort.sizeAsc": "Podle velikosti (nejmenší)",
     "sort.quality": "Podle kvality (nejlepší)",
     "label.disableGlobal": "Skrýt výsledky z globálního vyhledávání",
     "button.save": "Uložit a pokračovat",
@@ -146,6 +148,7 @@ const I18N = {
     "label.sort.order": "Sort Order",
     "sort.default": "Default",
     "sort.size": "By size (largest)",
+    "sort.sizeAsc": "By size (smallest)",
     "sort.quality": "By quality (best)",
     "label.disableGlobal": "Hide results from global search",
     "button.save": "Save & Continue",
@@ -234,11 +237,9 @@ function saveConfig() {
   }
 
   const baseUrl = window.location.origin;
-  const params = new URLSearchParams();
-  for (const key in data) {
-    if (data[key]) params.set(key, data[key]);
-  }
-  const installUrl = baseUrl + '/manifest.json?' + params.toString();
+  // SDK v1.6 reads config from the URL PATH segment (raw JSON), not from query
+  // params — query-string config is silently ignored on resource requests.
+  const installUrl = baseUrl + '/' + encodeURIComponent(JSON.stringify(data)) + '/manifest.json';
 
   try {
     localStorage.setItem('cz-streams-config', JSON.stringify(data));

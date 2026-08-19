@@ -22,6 +22,7 @@ import SDK from "stremio-addon-sdk";
 import { getTopItems } from "./src/getTopItems.ts";
 import { getMeta } from "./src/meta.ts";
 import { getTmdbDetails } from "./src/service/tmdb.ts";
+import { applySortOrder, getItemQualityRank, getQualityLabel } from "./src/sort.ts";
 import {
   type ConfigField,
   type UserConfigData,
@@ -44,7 +45,7 @@ function getManifest() {
     {
       key: "sortOrder",
       type: "text" as const,
-      title: "Zoradenie výsledkov (default/size/quality)",
+      title: "Zoradenie výsledkov (default/size/sizeAsc/quality)",
       default: "default",
     },
     {
@@ -86,6 +87,17 @@ function getManifest() {
 }
 
 const builder = new SDK.addonBuilder(getManifest());
+
+// Internal stream shape used by the czs:search flow (extra fields stripped before output)
+type SearchStream = {
+  url: string;
+  name: string;
+  description: string;
+  behaviorHints: { videoSize: number };
+  _qualityScore?: number;
+  _size?: number;
+  _resolution?: number;
+};
 
 // --- Meta handler (for czs: prefixed catalog results) ---
 builder.defineMetaHandler(async (props) => {
@@ -205,8 +217,9 @@ builder.defineStreamHandler(async (props) => {
 
       console.log(`Stream search: query="${query}"`);
 
-      // Check cache first
-      const cacheKey = `search:${query.trim().toLowerCase()}`;
+      // Check cache first — include sortOrder in the key so switching sort order
+      // doesn't return another order's cached list
+      const cacheKey = `search:${query.trim().toLowerCase()}:${config?.sortOrder || "default"}`;
       const cached = cacheGet<any[]>(cacheKey);
       if (cached) {
         console.log(`Cache hit: ${cached.length} streams for "${query}"`);
@@ -228,28 +241,28 @@ builder.defineStreamHandler(async (props) => {
       });
 
       const settled = await Promise.allSettled(searchPromises);
-      const streams: any[] = [];
+      const streams: SearchStream[] = [];
 
       for (const result of settled) {
         if (result.status !== "fulfilled") continue;
         const { resolver, results } = result.value;
         if (!results || results.length === 0) continue;
 
-        // Limit per resolver
-        const top = results.slice(0, 20);
+        // Optional enrichment (HellSpy real streamable resolution) before building streams
+        const enriched = resolver.enrich
+          ? await resolver.enrich(results, config || {})
+          : results;
+
+        // Per-resolver: pre-apply the user's sort + cap at 20, so one source
+        // (e.g. HellSpy's 64 results) can't drown the others before the final sort
+        const top = applySortOrder(
+          enriched.map((r) => ({ ref: r, title: r.title, size: r.size || 0, resolution: r.resolution || 0 })),
+          config?.sortOrder,
+        ).slice(0, 20).map((o) => o.ref);
 
         for (const r of top) {
-          // Extract quality from title
-          const t = r.title.toLowerCase();
-          let quality = "";
-          if (/2160p|4k|uhd|2160/.test(t)) quality = "4K";
-          else if (/1440p|2k/.test(t)) quality = "2K";
-          else if (/1080p|fullhd|1080/.test(t)) quality = "1080p";
-          else if (/720p|\bhd\b/.test(t)) quality = "720p";
-          else if (/480p/.test(t)) quality = "480p";
-
-          const qualityScore = quality === "4K" ? 4 : quality === "2K" ? 3 : quality === "1080p" ? 2 : quality === "720p" ? 1 : 0;
-
+          const qualityRank = getItemQualityRank(r);
+          const quality = getQualityLabel(qualityRank);
           const sizeStr = r.size ? bytesToSize(r.size) : "";
 
           streams.push({
@@ -259,29 +272,32 @@ builder.defineStreamHandler(async (props) => {
             behaviorHints: {
               videoSize: r.size || 0,
             },
-            _qualityScore: qualityScore,
+            // internal fields for sorting (stripped before output)
+            _qualityScore: qualityRank,
+            _size: r.size || 0,
+            _resolution: r.resolution || 0,
           });
         }
       }
 
-      // Sort streams based on user config
-      const sortOrder = config?.sortOrder || "default";
-      if (sortOrder === "size") {
-        streams.sort((a: any, b: any) => (b.behaviorHints.videoSize || 0) - (a.behaviorHints.videoSize || 0));
-      } else if (sortOrder === "quality") {
-        streams.sort((a: any, b: any) => (b._qualityScore || 0) - (a._qualityScore || 0));
-      }
+      // Sort ALL results by user config, then cap total (per-resolver pre-slice
+      // would drop big/better files before size/quality sorting had a say)
+      const sortedStreams = applySortOrder(
+        streams.map((s) => ({ ref: s, title: s.name, size: s._size || 0, resolution: s._resolution || 0 })),
+        config?.sortOrder,
+      ).slice(0, 30).map((o) => o.ref);
 
-      // Remove internal _qualityScore from output
-      for (const s of streams) {
+      // Remove internal fields from output
+      for (const s of sortedStreams) {
         delete s._qualityScore;
+        delete s._size;
       }
 
-      console.log(`Stream search: ${streams.length} streams for "${query}"`);
+      console.log(`Stream search: ${sortedStreams.length} streams for "${query}"`);
 
       // Cache results for 5 minutes (key is lowercased for better hit rate)
-      cacheSet(cacheKey, streams);
-      return { streams };
+      cacheSet(cacheKey, sortedStreams);
+      return { streams: sortedStreams };
     }
 
     // Handle czs: prefixed IDs (from old-style catalog results)
@@ -372,18 +388,22 @@ builder.defineStreamHandler(async (props) => {
         } as any;
         const allResolvers = getAllResolvers();
         const topItems = await getTopItems(fallbackMeta, allResolvers, config || {});
-        const streams = topItems.map((item) => ({
-          url: item.video,
-          name: `${item.resolverName}, (${bytesToSize(item.size)})`,
-          description: item.title,
-          subtitles: item.subtitles ?? undefined,
-          behaviorHints: {
-            videoSize: item.size,
-            bingeGroup: `${item.resolverName}-${item.resolverId}`,
-            ...(item.behaviorHints ?? {}),
-            filename: item.title,
-          },
-        }));
+        const streams = topItems.map((item) => {
+          const quality = getQualityLabel(getItemQualityRank(item));
+          const sizePart = item.size > 0 ? `, (${bytesToSize(item.size)})` : "";
+          return {
+            url: item.video,
+            name: `${item.resolverName}${sizePart}${quality ? ` • ${quality}` : ""}`,
+            description: item.title,
+            subtitles: item.subtitles ?? undefined,
+            behaviorHints: {
+              videoSize: item.size,
+              bingeGroup: `${item.resolverName}-${item.resolverId}`,
+              ...(item.behaviorHints ?? {}),
+              filename: item.title,
+            },
+          };
+        });
         return { streams };
       }
       console.error(`TMDB also has no data for ${id}`);
@@ -403,18 +423,22 @@ builder.defineStreamHandler(async (props) => {
 
     const topItems = await getTopItems(meta, allResolvers, config || {});
 
-    const streams = topItems.map((item) => ({
-      url: item.video,
-      name: `${item.resolverName}, (${bytesToSize(item.size)})`,
-      description: item.title,
-      subtitles: item.subtitles ?? undefined,
-      behaviorHints: {
-        videoSize: item.size,
-        bingeGroup: `${item.resolverName}-${item.resolverId}`,
-        ...(item.behaviorHints ?? {}),
-        filename: item.title,
-      },
-    }));
+    const streams = topItems.map((item) => {
+      const quality = getQualityLabel(getItemQualityRank(item));
+      const sizePart = item.size > 0 ? `, (${bytesToSize(item.size)})` : "";
+      return {
+        url: item.video,
+        name: `${item.resolverName}${sizePart}${quality ? ` • ${quality}` : ""}`,
+        description: item.title,
+        subtitles: item.subtitles ?? undefined,
+        behaviorHints: {
+          videoSize: item.size,
+          bingeGroup: `${item.resolverName}-${item.resolverId}`,
+          ...(item.behaviorHints ?? {}),
+          filename: item.title,
+        },
+      };
+    });
     return {
       streams,
     };

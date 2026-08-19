@@ -1,5 +1,4 @@
 import type { Resolver, SearchResult, StreamDetails } from "../getTopItems.ts";
-import { sizeToBytes } from "../utils/convert.ts";
 import commonHeaders from "../utils/headers.ts";
 
 const headers = {
@@ -58,6 +57,79 @@ async function getSearchResults(
     format: video.resolution || "",
     size: video.size || 0,
   }));
+}
+
+// --- Resolution enrichment -------------------------------------------------
+//
+// The search API does NOT return resolution — but the detail endpoint does
+// (conversions: quality → playback URL, capped at 1080p). We fetch details in
+// parallel for the top results of a query and attach the real streamable
+// resolution so quality sorting reflects what actually plays, not the
+// (often overstated) title claim.
+
+const ENRICH_MAX = 30;
+const DETAIL_TTL_MS = 5 * 60 * 1000;
+
+type DetailSummary = {
+  bestRes: number;
+  expiresAt: number;
+};
+
+const detailCache = new Map<string, DetailSummary>();
+
+function getDetailSummary(videoId: string, fileHash: string): DetailSummary | null {
+  const key = `${videoId}/${fileHash}`;
+  const entry = detailCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    detailCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+async function fetchDetailSummary(videoId: string, fileHash: string): Promise<DetailSummary | null> {
+  const cached = getDetailSummary(videoId, fileHash);
+  if (cached) return cached;
+
+  try {
+    const resp = await fetch(`${API_BASE}/video/${videoId}/${fileHash}`, {
+      headers,
+      method: "GET",
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as GWVideoDetail;
+    const resolutions = Object.keys(data.conversions || {})
+      .map(Number)
+      .filter((n) => !isNaN(n));
+    const summary: DetailSummary = {
+      bestRes: resolutions.length ? Math.max(...resolutions) : 0,
+      expiresAt: Date.now() + DETAIL_TTL_MS,
+    };
+    detailCache.set(`${videoId}/${fileHash}`, summary);
+    return summary;
+  } catch {
+    return null;
+  }
+}
+
+/** Attach real streamable resolution to up to ENRICH_MAX results (parallel detail fetches). */
+async function enrichResults(
+  results: SearchResult[],
+): Promise<SearchResult[]> {
+  const targets = results.slice(0, ENRICH_MAX);
+  await Promise.all(
+    targets.map(async (r) => {
+      const [videoId, fileHash] = r.resolverId.split("/");
+      if (!videoId || !fileHash) return;
+      const summary = await fetchDetailSummary(videoId, fileHash);
+      if (summary?.bestRes) {
+        r.resolution = summary.bestRes;
+      }
+    }),
+  );
+  return results;
 }
 
 async function getResultStreamUrls(
@@ -163,6 +235,15 @@ export function getResolver(): Resolver {
       } catch (e) {
         console.error("HellSpy search error:", e);
         return [];
+      }
+    },
+
+    enrich: async (results) => {
+      try {
+        return await enrichResults(results);
+      } catch (e) {
+        console.error("HellSpy enrich error:", e);
+        return results;
       }
     },
 
