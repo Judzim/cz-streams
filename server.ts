@@ -47,6 +47,23 @@ function getKoFiLogo(): Buffer {
           return;
         }
 
+        // Manifest — vlastný handler: SDK by pri config v URL vymazal
+        // behaviorHints.configurable (config button by zmizol zo Stremia).
+        // My ho vraciame VŽDY, aby config button ostal viditeľný (ako TorrentSK).
+        if (req.url && req.url.endsWith("/manifest.json")) {
+          const manifest = JSON.parse(JSON.stringify(addonInterface.manifest));
+          manifest.behaviorHints = {
+            ...manifest.behaviorHints,
+            configurable: true,
+          };
+          res.writeHead(200, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify(manifest));
+          return;
+        }
+
         if (req.url && req.url.startsWith("/configure")) {
           configureHandler(req, res);
           return;
