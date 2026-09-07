@@ -33,7 +33,10 @@ export function sizeToBytes(sizeStr: string) {
     : unit === "TB" ? 1099511627776
     : 1;
 
-  return sizeNum * sizeMul;
+  // Bytes are always whole numbers. Round: fractional input like "3.91 GB"
+  // would otherwise emit 4198330531.84 as JSON, which strict clients
+  // (Nuvio TV deserializes videoSize as Long) reject.
+  return Math.round(sizeNum * sizeMul);
 }
 
 /**

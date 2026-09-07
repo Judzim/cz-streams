@@ -214,7 +214,7 @@ async function getResultStreamUrls(
     video: videoUrl,
     subtitles,
     behaviorHints: {
-      videoSize: data.size || 0,
+      videoSize: Math.round(data.size || 0),
     },
   };
 }

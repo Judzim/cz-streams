@@ -270,7 +270,7 @@ builder.defineStreamHandler(async (props) => {
             name: r.title,
             description: [resolver.resolverName, quality, sizeStr].filter(Boolean).join(" • "),
             behaviorHints: {
-              videoSize: r.size || 0,
+              videoSize: Math.round(r.size || 0),
             },
             // internal fields for sorting (stripped before output)
             _qualityScore: qualityRank,
@@ -339,7 +339,7 @@ builder.defineStreamHandler(async (props) => {
           description: [detail.title || "", quality, sizeBytes > 0 ? bytesToSize(sizeBytes) : ""].filter(Boolean).join(" • "),
           subtitles: detail.subtitles ?? undefined,
           behaviorHints: {
-            videoSize: sizeBytes || detail.size || 0,
+            videoSize: Math.round(sizeBytes || detail.size || 0),
             ...(detail.behaviorHints ?? {}),
           },
         }],
@@ -411,7 +411,7 @@ builder.defineStreamHandler(async (props) => {
             description: item.title,
             subtitles: item.subtitles ?? undefined,
             behaviorHints: {
-              videoSize: item.size,
+              videoSize: Math.round(item.size || 0),
               bingeGroup: `${item.resolverName}-${item.resolverId}`,
               ...(item.behaviorHints ?? {}),
               filename: item.title,
@@ -446,7 +446,7 @@ builder.defineStreamHandler(async (props) => {
         description: item.title,
         subtitles: item.subtitles ?? undefined,
         behaviorHints: {
-          videoSize: item.size,
+          videoSize: Math.round(item.size || 0),
           bingeGroup: `${item.resolverName}-${item.resolverId}`,
           ...(item.behaviorHints ?? {}),
           filename: item.title,
